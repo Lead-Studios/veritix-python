@@ -1,0 +1,19 @@
+# Bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual env
+venv/
+.env
+
+# IDEs/editors
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Misc
+*.db
+*.sqlite3
