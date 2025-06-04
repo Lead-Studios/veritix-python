@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local dev stuff
+.venv/
+.env
+*.db
+*.sqlite3
+.vscode/
+.git/
+.gitignore
