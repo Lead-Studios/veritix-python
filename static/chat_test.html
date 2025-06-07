@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat WebSocket Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .messages {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-bottom: 10px;
+            background-color: #f9f9f9;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 8px;
+            border-radius: 4px;
+        }
+        .message.sent {
+            background-color: #e3f2fd;
+            text-align: right;
+        }
+        .message.received {
+            background-color: #f3e5f5;
+        }
+        .message.system {
+            background-color: #fff3e0;
+            font-style: italic;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        input, button {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        input[type="text"] {
+            flex: 1;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        .status.connected {
+            background-color: #e8f5e8;
+            color: #2e7d32;
+        }
+        .status.disconnected {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        .typing-indicator {
+            font-style: italic;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Chat WebSocket Test Client</h1>
+    
+    <div class="container">
+        <h3>Connection</h3>
+        <div id="status" class="status disconnected">Disconnected</div>
+        
+        <div class="input-group">
+            <input type="text" id="token" placeholder="JWT Token" style="flex: 2;">
+            <input type="text" id="sessionId" placeholder="Session ID">
+            <button onclick="connect()">Connect</button>
+            <button onclick="disconnect()">Disconnect</button>
+        </div>
+    </div>
+    
+    <div class="container">
+        <h3>Chat</h3>
+        <div id="messages" class="messages"></div>
+        <div id="typingIndicator" class="typing-indicator"></div>
+        
+        <div class="input-group">
+            <input type="text" id="messageInput" placeholder="Type your message..." onkeypress="handleKeyPress(event)">
+            <button onclick="sendMessage()">Send</button>
+        </div>
+        
+        <div class="input-group">
+            <button onclick="startTyping()">Start Typing</button>
+            <button onclick="stopTyping()">Stop Typing</button>
+            <button onclick="getParticipants()">Get Participants</button>
+        </div>
+    </div>
+    
+    <div class="container">
+        <h3>Actions</h3>
+        <div class="input-group">
+            <button onclick="createSession()">Create New Session</button>
+            <button onclick="sendRestMessage()">Send via REST</button>
+            <button onclick="getMessages()">Get Messages</button>
+        </div>
+    </div>
+
+    <script>
+        let websocket = null;
+        let currentUserId = null;
+        let typingUsers = new Set();
+
+        function updateStatus(message, isConnected) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${isConnected ? 'connected' : 'disconnected'}`;
+        }
+
+        function addMessage(content, type = 'received', sender = null) {
+            const messages = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            const senderInfo = sender ? `${sender}: ` : '';
+            messageDiv.innerHTML = `<strong>${timestamp}</strong><br>${senderInfo}${content}`;
+            
+            messages.appendChild(messageDiv);
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        function updateTypingIndicator() {
+            const indicator = document.getElementById('typingIndicator');
+            if (typingUsers.size > 0) {
+                const users = Array.from(typingUsers).join(', ');
+                indicator.textContent = `${users} ${typingUsers.size === 1 ? 'is' : 'are'} typing...`;
+            } else {
+                indicator.textContent = '';
+            }
+        }
+
+        async function createSession() {
+            const token = document.getElementById('token').value;
+            if (!token) {
+                alert('Please enter JWT token');
+                return;
+            }
+
+            try {
+                const response = await fetch('/chat/sessions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({})
+                });
+
+                if (response.ok) {
+                    const session = await response.json();
+                    document.getElementById('sessionId').value = session.session_id;
+                    addMessage(`Session created: ${session.session_id}`, 'system');
+                } else {
+                    const error = await response.text();
+                    addMessage(`Failed to create session: ${error}`, 'system');
+                }
+            } catch (error) {
+                addMessage(`Error creating session: ${error.message}`, 'system');
+            }
+        }
+
+        function connect() {
+            const token = document.getElementById('token').value;
+            const sessionId = document.getElementById('sessionId').value;
+
+            if (!token || !sessionId) {
+                alert('Please enter both token and session ID');
+                return;
+            }
+
+            const wsUrl = `ws://localhost:8000/chat/ws/${sessionId}?token=${token}`;
+            
+            try {
+                websocket = new WebSocket(wsUrl);
+
+                websocket.onopen = function(event) {
+                    updateStatus('Connected', true);
+                    addMessage('Connected to WebSocket', 'system');
+                };
+
+                websocket.onmessage = function(event) {
+                    const data = JSON.parse(event.data);
+                    handleWebSocketMessage(data);
+                };
+
+                websocket.onclose = function(event) {
+                    updateStatus('Disconnected', false);
+                    addMessage(`Connection closed: ${event.reason || 'Unknown reason'}`, 'system');
+                    websocket = null;
+                };
+
+                websocket.onerror = function(error) {
+                    updateStatus('Error', false);
+                    addMessage(`WebSocket error: ${error}`, 'system');
+                };
+
+            } catch (error) {
+                addMessage(`Connection error: ${error.message}`, 'system');
+            }
+        }
+
+        function disconnect() {
+            if (websocket) {
+                websocket.close();
+                websocket = null;
+            }
+        }
+
+        function handleWebSocketMessage(data) {
+            switch (data.type) {
+                case 'connection_established':
+                    currentUserId = data.data.user_id;
+                    addMessage(`Connection established. User ID: ${currentUserId}`, 'system');
+                    break;
+
+                case 'new_message':
+                    const msgData = data.data;
+                    const isSent = msgData.sender_id === currentUserId;
+                    addMessage(
+                        msgData.content, 
+                        isSent ? 'sent' : 'received',
+                        isSent ? 'You' : msgData.sender_full_name
+                    );
+                    break;
+
+                case 'system_message':
+                    addMessage(data.data.content, 'system');
+                    break;
+
+                case 'user_joined':
+                    addMessage(`User ${data.data.user_id} joined the session`, 'system');
+                    break;
+
+                case 'user_left':
+                    addMessage(`User ${data.data.user_id} left the session`, 'system');
+                    typingUsers.delete(data.data.user_id);
+                    updateTypingIndicator();
+                    break;
+
+                case 'typing_indicator':
+                    if (data.data.is_typing) {
+                        typingUsers.add(data.data.user_id);
+                    } else {
+                        typingUsers.delete(data.data.user_id);
+                    }
+                    updateTypingIndicator();
+                    break;
+
+                case 'participants_list':
+                    const participants = data.data.participants;
+                    addMessage(`Participants: ${participants.map(p => p.full_name).join(', ')}`, 'system');
+                    break;
+
+                case 'error':
+                    addMessage(`Error: ${data.data.message}`, 'system');
+                    break;
+
+                default:
+                    addMessage(`Unknown message type: ${data.type}`, 'system');
+            }
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+
+            if (!message || !websocket) {
+                return;
+            }
+
+            const data = {
+                action: 'send_message',
+                message: message,
+                message_type: 'text'
+            };
+
+            websocket.send(JSON.stringify(data));
+            input.value = '';
+        }
+
+        function startTyping() {
+            if (websocket) {
+                websocket.send(JSON.stringify({ action: 'typing' }));
+            }
+        }
+
+        function stopTyping() {
+            if (websocket) {
+                websocket.send(JSON.stringify({ action: 'stop_typing' }));
+            }
+        }
+
+        function getParticipants() {
+            if (websocket) {
+                websocket.send(JSON.stringify({ action: 'get_participants' }));
+            }
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        async function sendRestMessage() {
+            const token = document.getElementById('token').value;
+            const sessionId = document.getElementById('sessionId').value;
+            const message = prompt('Enter message to send via REST:');
+
+            if (!token || !sessionId || !message) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/chat/sessions/${sessionId}/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        content: message,
+                        message_type: 'text'
+                    })
+                });
+
+                if (response.ok) {
+                    addMessage('Message sent via REST API', 'system');
+                } else {
+                    const error = await response.text();
+                    addMessage(`REST API error: ${error}`, 'system');
+                }
+            } catch (error) {
+                addMessage(`REST API error: ${error.message}`, 'system');
+            }
+        }
+
+        async function getMessages() {
+            const token = document.getElementById('token').value;
+            const sessionId = document.getElementById('sessionId').value;
+
+            if (!token || !sessionId) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/chat/sessions/${sessionId}/messages`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const messages = await response.json();
+                    addMessage(`Retrieved ${messages.length} messages from REST API`, 'system');
+                } else {
+                    const error = await response.text();
+                    addMessage(`Failed to get messages: ${error}`, 'system');
+                }
+            } catch (error) {
+                addMessage(`Error getting messages: ${error.message}`, 'system');
+            }
+        }
+
+        // Auto-connect on page load if token and session are provided
+        window.onload = function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const token = urlParams.get('token');
+            const sessionId = urlParams.get('session');
+
+            if (token) {
+                document.getElementById('token').value = token;
+            }
+            if (sessionId) {
+                document.getElementById('sessionId').value = sessionId;
+            }
+        };
+    </script>
+</body>
+</html>
