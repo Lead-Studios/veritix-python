@@ -5,7 +5,7 @@ import json
 import logging
 
 from ..database import get_db
-from ..services.auth_service import get_current_user
+from app.services.auth_service import get_current_user, verify_token
 from ..services.chat_service import ChatService
 from ..models import User, ChatSession as ChatSessionModel, ChatMessage as ChatMessageModel
 from ..schemas import (
@@ -299,27 +299,30 @@ async def websocket_endpoint(
     """WebSocket endpoint for real-time chat"""
     try:
         # Authenticate user
-        from ..services.auth_service import verify_token
         token_data = verify_token(token)
-        
         if not token_data or not token_data.user_id:
             await websocket.close(code=4001, reason="Invalid token")
             return
-        
         # Get user
         user = db.query(User).filter(User.id == token_data.user_id).first()
-        if not user or not user.is_active:
+        if not user or not getattr(user, "is_active", True):
             await websocket.close(code=4002, reason="User not found or inactive")
             return
-        
+        # Enforce session-user match (cross-access protection)
+        chat_service = ChatService(db)
+        session = chat_service.get_session(session_id)
+        if not session:
+            await websocket.close(code=4003, reason="Session not found")
+            return
+        if session.user_id != user.id and getattr(user, "role", None) != "admin":
+            await websocket.close(code=4004, reason="Access denied")
+            return
         # Update user online status
         user.is_online = True
         db.commit()
-        
         # Handle WebSocket connection
         handler = ChatWebSocketHandler(websocket, user.id, session_id, db)
         await handler.handle_connection()
-        
     except Exception as e:
         logger.error(f"WebSocket connection error: {e}")
         try:
