@@ -104,6 +104,7 @@ class ChatSession(ChatSessionBase):
     ended_at: Optional[datetime] = None
     user: User
     escalation: Optional[Escalation] = None
+    feedback: Optional["ChatFeedback"] = None
 
     class Config:
         from_attributes = True
@@ -127,6 +128,54 @@ class ChatMessage(ChatMessageBase):
 
     class Config:
         from_attributes = True
+
+# Feedback Schemas
+class FeedbackBase(BaseModel):
+    rating: Optional[int] = Field(None, ge=1, le=5, description="1-5 star rating")
+    thumbs_rating: Optional[bool] = Field(None, description="True for thumbs up, False for thumbs down")
+    feedback_text: Optional[str] = Field(None, max_length=1000, description="Optional text feedback")
+    feedback_tags: Optional[List[str]] = Field(None, description="Predefined feedback tags")
+    resolution_helpful: Optional[bool] = Field(None, description="Was the resolution helpful?")
+    response_time_rating: Optional[int] = Field(None, ge=1, le=5, description="Response time rating")
+
+class FeedbackCreate(FeedbackBase):
+    pass
+
+class FeedbackUpdate(BaseModel):
+    rating: Optional[int] = Field(None, ge=1, le=5)
+    thumbs_rating: Optional[bool] = None
+    feedback_text: Optional[str] = Field(None, max_length=1000)
+    feedback_tags: Optional[List[str]] = None
+    resolution_helpful: Optional[bool] = None
+    response_time_rating: Optional[int] = Field(None, ge=1, le=5)
+
+class ChatFeedback(FeedbackBase):
+    id: int
+    session_id: int
+    user_id: int
+    agent_id: Optional[int] = None
+    created_at: datetime
+    user: User
+    agent: Optional[User] = None
+
+    class Config:
+        from_attributes = True
+
+# Feedback Analytics Schemas
+class FeedbackStats(BaseModel):
+    total_feedback: int
+    average_rating: Optional[float] = None
+    thumbs_up_percentage: Optional[float] = None
+    resolution_helpful_percentage: Optional[float] = None
+    average_response_time_rating: Optional[float] = None
+    common_tags: List[Dict[str, Any]] = []
+
+class FeedbackSummary(BaseModel):
+    session_id: str
+    rating: Optional[int] = None
+    thumbs_rating: Optional[bool] = None
+    feedback_text: Optional[str] = None
+    created_at: datetime
 
 # WebSocket Schemas
 class WebSocketMessage(BaseModel):
@@ -183,6 +232,11 @@ class DashboardStats(BaseModel):
     active_chat_sessions: int
     online_agents: int
     average_resolution_time: Optional[float] = None
+    # New feedback metrics
+    total_feedback_received: int = 0
+    average_feedback_rating: Optional[float] = None
+    customer_satisfaction_percentage: Optional[float] = None
+    feedback_response_rate: Optional[float] = None
 
 class EscalationsByPriority(BaseModel):
     low: int
