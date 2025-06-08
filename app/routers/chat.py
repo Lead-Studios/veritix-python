@@ -3,14 +3,16 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 import json
 import logging
+from datetime import datetime
 
 from ..database import get_db
 from ..services.auth_service import get_current_user
 from ..services.chat_service import ChatService
+from ..services.feedback_service import FeedbackService
 from ..models import User, ChatSession as ChatSessionModel, ChatMessage as ChatMessageModel
 from ..schemas import (
     ChatSession, ChatSessionCreate, ChatMessage, ChatMessageCreate,
-    SuccessResponse, UserPresence
+    SuccessResponse, UserPresence, FeedbackCreate, FeedbackUpdate, ChatFeedback, FeedbackStats
 )
 from ..websocket_manager import ChatWebSocketHandler, manager
 
@@ -361,3 +363,161 @@ async def link_session_to_escalation(
     )
     
     return SuccessResponse(message="Session linked to escalation successfully")
+
+# Feedback Endpoints
+
+@router.post("/sessions/{session_id}/feedback", response_model=ChatFeedback)
+async def create_session_feedback(
+    session_id: str,
+    feedback_data: FeedbackCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create feedback for a chat session"""
+    chat_service = ChatService(db)
+    feedback_service = FeedbackService(db)
+    
+    # Get session
+    session = chat_service.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    
+    # Check if user has access to this session
+    if session.user_id != current_user.id and current_user.role.value not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Create feedback
+    feedback = feedback_service.create_feedback(
+        session_id=session.id,
+        user_id=current_user.id,
+        feedback_data=feedback_data
+    )
+    
+    if not feedback:
+        raise HTTPException(status_code=400, detail="Feedback already exists for this session")
+    
+    # Notify agents about the feedback
+    await chat_service.broadcast_system_message(
+        session_id,
+        f"Feedback received from {current_user.full_name}",
+        {"action": "feedback_received", "feedback_id": feedback.id}
+    )
+    
+    return feedback
+
+@router.get("/sessions/{session_id}/feedback", response_model=Optional[ChatFeedback])
+async def get_session_feedback(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get feedback for a chat session"""
+    chat_service = ChatService(db)
+    feedback_service = FeedbackService(db)
+    
+    # Get session
+    session = chat_service.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    
+    # Check if user has access to this session
+    if session.user_id != current_user.id and current_user.role.value not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    feedback = feedback_service.get_session_feedback(session.id)
+    return feedback
+
+@router.put("/feedback/{feedback_id}", response_model=ChatFeedback)
+async def update_feedback(
+    feedback_id: int,
+    feedback_data: FeedbackUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update existing feedback"""
+    feedback_service = FeedbackService(db)
+    
+    feedback = feedback_service.update_feedback(
+        feedback_id=feedback_id,
+        user_id=current_user.id,
+        feedback_data=feedback_data
+    )
+    
+    if not feedback:
+        raise HTTPException(status_code=404, detail="Feedback not found or access denied")
+    
+    return feedback
+
+@router.post("/sessions/{session_id}/request-feedback", response_model=SuccessResponse)
+async def request_session_feedback(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Request feedback from session participants"""
+    feedback_service = FeedbackService(db)
+    
+    success = await feedback_service.request_feedback(session_id)
+    
+    if not success:
+        raise HTTPException(status_code=400, detail="Cannot request feedback for this session")
+    
+    return SuccessResponse(message="Feedback request sent successfully")
+
+@router.get("/feedback/my-history", response_model=List[ChatFeedback])
+async def get_my_feedback_history(
+    limit: int = Query(50, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get current user's feedback history"""
+    feedback_service = FeedbackService(db)
+    
+    feedback_history = feedback_service.get_user_feedback_history(
+        user_id=current_user.id,
+        limit=limit
+    )
+    
+    return feedback_history
+
+@router.get("/feedback/stats", response_model=FeedbackStats)
+async def get_feedback_stats(
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get feedback statistics (admin only)"""
+    if current_user.role.value not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    feedback_service = FeedbackService(db)
+    stats = feedback_service.get_feedback_stats(days=days)
+    
+    return stats
+
+@router.get("/feedback/agent/{agent_id}/performance")
+async def get_agent_performance(
+    agent_id: int,
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get performance metrics for a specific agent (admin only)"""
+    if current_user.role.value not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    feedback_service = FeedbackService(db)
+    performance = feedback_service.get_agent_performance(agent_id=agent_id, days=days)
+    
+    return performance
+
+@router.get("/feedback/tags", response_model=List[str])
+async def get_feedback_tags(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get predefined feedback tags"""
+    feedback_service = FeedbackService(db)
+    tags = feedback_service.get_predefined_tags()
+    
+    return tags

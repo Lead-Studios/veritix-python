@@ -4,6 +4,7 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, desc
 from datetime import datetime
+import asyncio
 
 from ..models import ChatSession, ChatMessage, User, Escalation, MessageType
 from ..schemas import ChatSessionCreate, ChatMessageCreate, ChatSession as ChatSessionSchema
@@ -61,7 +62,26 @@ class ChatService:
         session.ended_at = datetime.utcnow()
         
         self.db.commit()
+        
+        # Request feedback after ending session
+        asyncio.create_task(self._request_feedback_after_session_end(session_id))
+        
         return True
+
+    async def _request_feedback_after_session_end(self, session_id: str):
+        """Request feedback after session ends"""
+        try:
+            from .feedback_service import FeedbackService
+            feedback_service = FeedbackService(self.db)
+            
+            # Wait a moment before requesting feedback
+            await asyncio.sleep(2)
+            
+            # Request feedback
+            await feedback_service.request_feedback(session_id)
+            
+        except Exception as e:
+            print(f"Error requesting feedback after session end: {e}")
 
     def get_session_messages(
         self, 

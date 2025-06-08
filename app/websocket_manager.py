@@ -242,7 +242,7 @@ class ChatWebSocketHandler:
         """Handle incoming WebSocket messages"""
         try:
             ws_message = ChatWebSocketMessage(**message)
-            
+        
             if ws_message.action == "send_message":
                 await self.handle_send_message(ws_message)
             elif ws_message.action == "typing":
@@ -251,9 +251,11 @@ class ChatWebSocketHandler:
                 await self.handle_typing(False)
             elif ws_message.action == "get_participants":
                 await self.handle_get_participants()
+            elif ws_message.action == "submit_feedback":
+                await self.handle_feedback_submission(message)
             else:
                 await self.send_error(f"Unknown action: {ws_message.action}")
-                
+            
         except Exception as e:
             logger.error(f"Error handling message: {e}")
             await self.send_error("Invalid message format")
@@ -354,3 +356,63 @@ class ChatWebSocketHandler:
                 "timestamp": datetime.utcnow().isoformat()
             }
         })
+
+    async def handle_feedback_submission(self, ws_message: dict):
+        """Handle feedback submission via WebSocket"""
+        try:
+            from .services.feedback_service import FeedbackService
+            from .schemas import FeedbackCreate
+        
+            feedback_service = FeedbackService(self.db)
+        
+            # Get chat session
+            chat_session = self.db.query(ChatSession).filter(
+                ChatSession.session_id == self.session_id,
+                ChatSession.is_active == True
+            ).first()
+        
+            if not chat_session:
+                await self.send_error("Chat session not found")
+                return
+        
+            # Create feedback data
+            feedback_data = FeedbackCreate(**ws_message.get("feedback_data", {}))
+        
+            # Create feedback
+            feedback = feedback_service.create_feedback(
+                session_id=chat_session.id,
+                user_id=self.user_id,
+                feedback_data=feedback_data
+            )
+        
+            if not feedback:
+                await self.send_error("Feedback already exists for this session")
+                return
+        
+            # Send confirmation
+            await self.send_message({
+                "type": "feedback_submitted",
+                "data": {
+                    "feedback_id": feedback.id,
+                    "message": "Thank you for your feedback!",
+                    "session_id": self.session_id
+                }
+            })
+        
+            # Notify other participants
+            await manager.broadcast_to_session(
+                self.session_id,
+                {
+                    "type": "feedback_received",
+                    "data": {
+                        "session_id": self.session_id,
+                        "user_id": self.user_id,
+                        "message": "Feedback has been submitted for this session"
+                    }
+                },
+                exclude_user=self.user_id
+            )
+        
+        except Exception as e:
+            logger.error(f"Error handling feedback submission: {e}")
+            await self.send_error("Failed to submit feedback")
