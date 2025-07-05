@@ -5,6 +5,8 @@ import json
 import logging
 from datetime import datetime
 
+# Make sure to import the new schemas
+from .. import schemas
 from ..database import get_db
 from app.services.auth_service import get_current_user, verify_token
 from ..services.chat_service import ChatService
@@ -16,10 +18,11 @@ from ..schemas import (
 )
 from ..websocket_manager import ChatWebSocketHandler, manager
 
-router = APIRouter(prefix="/chat", tags=["chat"])
+# This is your existing router for authenticated, complex operations
+router = APIRouter(prefix="/chat", tags=["Chat (Advanced)"])
 logger = logging.getLogger(__name__)
 
-# REST API Endpoints
+# ... (all of your existing code for the `router` remains unchanged) ...
 
 @router.post("/sessions", response_model=ChatSession)
 async def create_chat_session(
@@ -289,8 +292,6 @@ async def get_online_users(
         for user in users
     ]
 
-# WebSocket Endpoint
-
 @router.websocket("/ws/{session_id}")
 async def websocket_endpoint(
     websocket: WebSocket,
@@ -342,7 +343,6 @@ async def websocket_endpoint(
         except:
             pass
 
-# Link chat session to escalation
 @router.post("/sessions/{session_id}/link-escalation/{escalation_id}", response_model=SuccessResponse)
 async def link_session_to_escalation(
     session_id: str,
@@ -366,8 +366,6 @@ async def link_session_to_escalation(
     )
     
     return SuccessResponse(message="Session linked to escalation successfully")
-
-# Feedback Endpoints
 
 @router.post("/sessions/{session_id}/feedback", response_model=ChatFeedback)
 async def create_session_feedback(
@@ -524,3 +522,81 @@ async def get_feedback_tags(
     tags = feedback_service.get_predefined_tags()
     
     return tags
+
+# --- NEW: Router for Basic Chatbot Routes ---
+# This router provides simple, unauthenticated endpoints for the chatbot.
+basic_router = APIRouter(
+    prefix="/basic_chat",
+    tags=["Chat (Basic)"],
+)
+
+@basic_router.post("/init", response_model=schemas.BasicChatSessionResponse)
+def initialize_chat_session(
+    request: schemas.ChatInitRequest,
+    db: Session = Depends(get_db)
+):
+    """Initializes a new chat session for a user ID."""
+    chat_service = ChatService(db)
+    # Check if user exists
+    user = db.query(User).filter(User.id == request.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User with ID {request.user_id} not found.")
+
+    new_session = chat_service.create_session(user_id=request.user_id)
+    if not new_session:
+        raise HTTPException(status_code=500, detail="Could not create chat session.")
+    return new_session
+
+@basic_router.get("/{session_id}/history", response_model=List[schemas.BasicMessageResponse])
+def get_chat_history(
+    session_id: str,
+    db: Session = Depends(get_db)
+):
+    """Fetches the message history for a given chat session."""
+    chat_service = ChatService(db)
+    session = chat_service.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Chat session not found.")
+        
+    messages = chat_service.get_session_messages(session_id)
+    return messages
+
+@basic_router.post("/send", response_model=schemas.ChatSendResponse)
+def send_message(
+    request: schemas.ChatSendRequest,
+    db: Session = Depends(get_db)
+):
+    """Accepts a user message, processes it, and returns the bot's response."""
+    chat_service = ChatService(db)
+    
+    session = chat_service.get_session(request.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Chat session not found.")
+
+    chat_service.create_message(
+        session_id=request.session_id,
+        sender_id=session.user_id,
+        content=request.message
+    )
+    
+    handler_result = chat_service.handle_chat_message(
+        user_id=session.user_id,
+        message=request.message
+    )
+    
+    BOT_SENDER_ID = 0
+    chat_service.create_message(
+        session_id=request.session_id,
+        sender_id=BOT_SENDER_ID, 
+        content=handler_result["response"]
+    )
+    
+    if handler_result["should_escalate"]:
+        logger.info(f"Escalation triggered for session {request.session_id}!")
+        # You can add further escalation logic here
+        
+    return schemas.ChatSendResponse(
+        bot_response=handler_result["response"],
+        severity_level=handler_result["severity"]["level"],
+        should_escalate=handler_result["should_escalate"]
+    )
