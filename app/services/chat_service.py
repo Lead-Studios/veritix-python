@@ -12,29 +12,38 @@ from ..models import ChatSession, ChatMessage, User, Escalation, MessageType
 from ..schemas import ChatSessionCreate, ChatMessageCreate, ChatSession as ChatSessionSchema
 from ..websocket_manager import manager
 
-# It's better to define constants at the module level
+# Constant for severity keyword scoring
 KEYWORD_SCORES = {
-    "urgent": 3,
-    "asap": 3,
-    "critical": 3,
-    "broken": 2,
-    "error": 2,
-    "fail": 2,
-    "can't": 2,
-    "unable": 2,
-    "issue": 1,
-    "problem": 1,
-    "help": 1,
+    "urgent": 3, "asap": 3, "critical": 3, "broken": 2, "error": 2,
+    "fail": 2, "can't": 2, "unable": 2, "issue": 1, "problem": 1, "help": 1,
 }
+
+# NEW: Rule-based system for frequently asked questions (FAQs)
+FAQ_RULES = {
+    "refund": {
+        "keywords": ["refund", "money back", "reimburse"],
+        "response": "For refund requests, please visit our refunds page at example.com/refunds or email support@veritix.com with your ticket details."
+    },
+    "ticket_issue": {
+        "keywords": ["ticket", "my ticket", "find my ticket", "booking"],
+        "response": "You can find your tickets in the 'My Account' section of our app. If you're still having trouble, please provide your booking reference number."
+    },
+    "password_reset": {
+        "keywords": ["password", "reset password", "forgot password"],
+        "response": "To reset your password, please go to the login page and click 'Forgot Password'."
+    }
+}
+
 
 class ChatService:
     def __init__(self, db: Session):
         self.db = db
-        # NOTE: This simple dictionary is for demonstration. For a production
-        # environment, you should store this state in your database (e.g., in the
-        # ChatSession model) to handle multiple users and server restarts.
+        # NOTE: This simple dictionary is for demonstration. For production,
+        # store this state in your database.
         self.conversation_history = {}
 
+    # ... (all other methods like create_session, get_session, etc. remain the same) ...
+    # ... (omitting for brevity, they are unchanged from the previous response) ...
     def create_session(self, user_id: int, escalation_id: Optional[int] = None) -> ChatSession:
         """Create a new chat session"""
         session_id = str(uuid.uuid4())
@@ -269,30 +278,28 @@ class ChatService:
             ChatSession.escalation_id == escalation_id,
             ChatSession.is_active == True
         ).first()
-    
+
     def detect_severity(self, message: str, user_id: str) -> dict:
         """
         Detects the severity of a user's message based on keywords,
         sentiment, and conversation history.
         """
         severity_score = 0
-        
         message_lower = message.lower()
+        
         for keyword, score in KEYWORD_SCORES.items():
             if keyword in message_lower:
                 severity_score += score
 
         sentiment = TextBlob(message).sentiment
-        # sentiment.polarity ranges from -1 (negative) to 1 (positive)
         if sentiment.polarity < -0.5:
-            severity_score += 2  # Strong negative sentiment
+            severity_score += 2
         elif sentiment.polarity < -0.1:
-            severity_score += 1  # Mildly negative sentiment
+            severity_score += 1
 
-        # Access the class-level conversation history
         failed_attempts = self.conversation_history.get(str(user_id), {}).get("failed_responses", 0)
         if failed_attempts >= 2:
-            severity_score += 3 
+            severity_score += 3
 
         if severity_score >= 5:
             severity_level = "CRITICAL"
@@ -307,12 +314,10 @@ class ChatService:
 
     def handle_chat_message(self, user_id: int, message: str) -> dict:
         """
-        Processes a chat message, detects its severity, and determines a response.
-        This method should be called from your router.
+        Processes a chat message, detects severity, checks for FAQs, and
+        determines a response.
         """
-        # Ensure user_id is a string for dictionary keys
         user_id_str = str(user_id)
-
         severity = self.detect_severity(message, user_id_str)
         
         print(f"User ID {user_id_str}: '{message}'")
@@ -320,29 +325,37 @@ class ChatService:
 
         bot_response_text = ""
         should_escalate = False
+        
+        # First, check for high severity to escalate immediately
         if severity['level'] in ["HIGH", "CRITICAL"]:
             bot_response_text = "I see this is an urgent issue. I'm escalating this to a human agent immediately."
             should_escalate = True
-            # Reset failed responses after escalation
             if user_id_str in self.conversation_history:
                 self.conversation_history[user_id_str]["failed_responses"] = 0
         else:
-            # Replace this with your actual bot logic
-            is_bot_response_successful = False # Assume the bot fails for this example
+            # If not escalating, check for FAQ keywords
+            is_bot_response_successful = False
+            message_lower = message.lower()
             
+            for intent, data in FAQ_RULES.items():
+                if any(keyword in message_lower for keyword in data["keywords"]):
+                    bot_response_text = data["response"]
+                    is_bot_response_successful = True
+                    break # Stop checking once a match is found
+            
+            # Handle success or failure
             if is_bot_response_successful:
-                bot_response_text = "Here is the information you requested."
+                # If we found an FAQ answer, reset the failed response counter
                 if user_id_str in self.conversation_history:
                    self.conversation_history[user_id_str]["failed_responses"] = 0
             else:
-                bot_response_text = "I'm sorry, I'm having trouble understanding. Could you please rephrase?"
-                # Increment failed response counter
+                # If no FAQ matched, it's a failed response
+                bot_response_text = "I'm sorry, I'm having trouble understanding. Could you please rephrase your question?"
                 self.conversation_history.setdefault(user_id_str, {"failed_responses": 0})
                 self.conversation_history[user_id_str]["failed_responses"] += 1
 
-
         return {
-            "response": bot_response_text, 
+            "response": bot_response_text,
             "severity": severity,
             "should_escalate": should_escalate
         }
