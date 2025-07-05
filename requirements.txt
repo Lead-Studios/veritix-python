@@ -4,3 +4,4 @@ python-dotenv
 pydantic
 pydantic-settings
 python-jose
+textblob
