@@ -129,6 +129,41 @@ class ChatMessage(ChatMessageBase):
     class Config:
         from_attributes = True
 
+# --- NEW: Schemas for Basic Chatbot Routes ---
+class ChatInitRequest(BaseModel):
+    user_id: int
+
+class ChatSendRequest(BaseModel):
+    session_id: str
+    message: str
+
+class BasicChatSessionResponse(BaseModel):
+    session_id: str
+    user_id: int
+    created_at: datetime
+    is_active: bool
+
+    class Config:
+        from_attributes = True
+
+class BasicMessageResponse(BaseModel):
+    id: int
+    session_id: int
+    sender_id: int
+    content: str
+    created_at: datetime
+    message_type: str
+
+    class Config:
+        from_attributes = True
+
+class ChatSendResponse(BaseModel):
+    bot_response: str
+    severity_level: str
+    should_escalate: bool
+# --- End of New Schemas ---
+
+
 # Feedback Schemas
 class FeedbackBase(BaseModel):
     rating: Optional[int] = Field(None, ge=1, le=5, description="1-5 star rating")
