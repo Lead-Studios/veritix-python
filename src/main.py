@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import List
@@ -7,6 +7,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
+from typing import Dict, List
 
 app = FastAPI(
     title="Veritix Microservice",
@@ -17,6 +18,12 @@ app = FastAPI(
 # Global model pipeline; created at startup
 model_pipeline: Pipeline | None = None
 
+mock_user_events: Dict[str, list[str]] = {
+    "user1": ["concert_A", "concert_B"],
+    "user2": ["concert_B", "concert_C"],
+    "user3": ["concert_A", "concert_C", "concert_D"],
+    "user4": ["concert_D", "concert_E"],
+}
 
 class PredictRequest(BaseModel):
     """Request body for /predict-scalper endpoint.
@@ -31,6 +38,12 @@ class PredictRequest(BaseModel):
 class PredictResponse(BaseModel):
     probability: float
 
+class RecommendRequest(BaseModel):  
+    user_id: str  
+
+
+class RecommendResponse(BaseModel):  
+    recommendations: List[str]
 
 def generate_synthetic_event_data(num_samples: int = 2000, random_seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
     """Generate synthetic data for scalper detection.
@@ -115,3 +128,24 @@ def predict_scalper(payload: PredictRequest):
 #     import uvicorn
 #     # Note: host="0.0.0.0" is crucial for Docker development
 #     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+@app.post("/recommend-events", response_model=RecommendResponse)  
+def recommend_events(payload: RecommendRequest):  
+    user_id = payload.user_id  
+    if user_id not in mock_user_events:  
+        raise HTTPException(  
+            status_code=404,  
+            detail={"message": "User not found"}  
+        )  
+    user_events = set(mock_user_events[user_id])  
+    scores = {}  
+    for other_user, events in mock_user_events.items():  
+        if other_user == user_id:  
+            continue  
+        overlap = len(user_events.intersection(events))  
+        for e in events:  
+            if e not in user_events:  
+                scores[e] = scores.get(e, 0) + overlap  
+
+    recommended = sorted(scores, key=scores.get, reverse=True)[:3]  
+    return RecommendResponse(recommendations=recommended)  
