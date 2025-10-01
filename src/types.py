@@ -1,5 +1,20 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
+from datetime import datetime
+
+# --- Fraud Detection Types ---
+class FraudCheckRequest(BaseModel):
+    """Request body for /check-fraud endpoint.
+    Contains a list of ticket purchase and transfer events to check for suspicious activity.
+    """
+    events: List[Dict[str, Any]] = Field(
+        ..., description="List of event dicts. Each event should include at least: type (purchase|transfer), user, ip, ticket_id, timestamp (ISO8601 string)."
+    )
+
+class FraudCheckResponse(BaseModel):
+    triggered_rules: List[str] = Field(
+        ..., description="List of fraud rule names triggered by the submitted events."
+    )
 
 class PredictRequest(BaseModel):
     """Request body for /predict-scalper endpoint.
