@@ -16,8 +16,11 @@ from src.types import (
     TicketRequest,
     QRResponse,
     QRValidateRequest,
-    QRValidateResponse
+    QRValidateResponse,
+    FraudCheckRequest,
+    FraudCheckResponse
 )
+from src.fraud import check_fraud_rules
 
 app = FastAPI(
     title="Veritix Microservice",
@@ -29,6 +32,12 @@ logger = logging.getLogger("veritix")
 
 # Global model pipeline; created at startup
 model_pipeline: Pipeline | None = None
+
+# --- Fraud Detection Endpoint ---
+@app.post("/check-fraud", response_model=FraudCheckResponse)
+def check_fraud(payload: FraudCheckRequest):
+    triggered = check_fraud_rules(payload.events)
+    return FraudCheckResponse(triggered_rules=triggered)
 
 
 
@@ -100,4 +109,3 @@ def validate_qr(payload: QRValidateRequest):
     except Exception as exc:
         logger.warning("Invalid QR validation attempt: %s", str(exc))
         return QRValidateResponse(isValid=False)
-
