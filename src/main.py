@@ -2,6 +2,10 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import List
+import base64
+import io
+import json
+import qrcode
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
@@ -30,6 +34,16 @@ class PredictRequest(BaseModel):
 
 class PredictResponse(BaseModel):
     probability: float
+
+
+class TicketRequest(BaseModel):
+    ticket_id: str = Field(..., pattern=r"^[A-Za-z0-9_-]+$", description="Alphanumeric ticket identifier")
+    event: str = Field(..., min_length=1, description="Event name")
+    user: str = Field(..., min_length=1, description="User identifier or email")
+
+
+class QRResponse(BaseModel):
+    qr_base64: str
 
 
 def generate_synthetic_event_data(num_samples: int = 2000, random_seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
@@ -110,8 +124,23 @@ def predict_scalper(payload: PredictRequest):
     proba = float(model_pipeline.predict_proba(features)[0, 1])
     return PredictResponse(probability=proba)
 
-# If you run this file directly (e.g., in a local development environment outside Docker):
-# if __name__ == "__main__":
-#     import uvicorn
-#     # Note: host="0.0.0.0" is crucial for Docker development
-#     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+@app.post("/generate-qr", response_model=QRResponse)
+def generate_qr(payload: TicketRequest):
+    # Encode ticket metadata as compact JSON
+    data = {
+        "ticket_id": payload.ticket_id,
+        "event": payload.event,
+        "user": payload.user,
+    }
+    qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=10, border=4)
+    qr.add_data(json.dumps(data, separators=(",", ":")))
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+    encoded = base64.b64encode(buffer.read()).decode("utf-8")
+    return QRResponse(qr_base64=encoded)
+
