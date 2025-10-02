@@ -59,4 +59,21 @@ Tables are created automatically on first load.
 docker compose down
 ```
 
+## Running tests
+
+Install test dependencies (preferably inside a virtualenv):
+
+```powershell
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+Run the test suite with coverage:
+
+```powershell
+python -m pytest --cov=src --cov-report=term-missing
+```
+
+The GitHub Actions workflow is configured to fail if overall coverage falls below 70%.
+
 

@@ -4,11 +4,9 @@ from fastapi.responses import JSONResponse
 import base64
 import io
 import json
-import qrcode
 import hmac
 import logging
-import numpy as np
-from sklearn.pipeline import Pipeline
+from typing import Any
 
 from src.utils import compute_signature, train_logistic_regression_pipeline
 from src.etl import run_etl_once
@@ -42,7 +40,7 @@ app = FastAPI(
 logger = logging.getLogger("veritix")
 
 # Global model pipeline; created at startup
-model_pipeline: Pipeline | None = None
+model_pipeline: Any | None = None
 etl_scheduler: "BackgroundScheduler | None" = None
 
 # --- Fraud Detection Endpoint ---
@@ -57,7 +55,10 @@ def check_fraud(payload: FraudCheckRequest):
 @app.on_event("startup")
 def on_startup() -> None:
     global model_pipeline
-    model_pipeline = train_logistic_regression_pipeline()
+    # Allow test environments to skip expensive model training / ML imports
+    skip_training = os.getenv("SKIP_MODEL_TRAINING", "false").lower() in ("1", "true", "yes")
+    if not skip_training:
+        model_pipeline = train_logistic_regression_pipeline()
     # Optionally start ETL scheduler
     enable_sched = os.getenv("ENABLE_ETL_SCHEDULER", "false").lower() in ("true", "1", "yes")
     if enable_sched and BackgroundScheduler:
@@ -92,6 +93,8 @@ def predict_scalper(payload: PredictRequest):
         if model_pipeline is None:
             # Lazy-initialize the model to ensure availability in test environments
             model_pipeline = train_logistic_regression_pipeline()
+        # import numpy locally to avoid importing it at module import time
+        import numpy as np
         features = np.array(payload.features, dtype=float).reshape(1, -1)
         proba = float(model_pipeline.predict_proba(features)[0, 1])
         return PredictResponse(probability=proba)
@@ -110,7 +113,17 @@ def generate_qr(payload: TicketRequest):
     }
     sig = compute_signature(unsigned)
     data = {**unsigned, "sig": sig}
-    qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=10, border=4)
+    # Lazy import to avoid requiring pillow/qrcode for all test runs
+    try:
+        import qrcode as _qrcode
+        from PIL import Image  # noqa: F401 - pillow is used by qrcode
+    except Exception as exc:
+        # If qrcode isn't installed, return a helpful error (tests expecting QR generation
+        # should install the dependency). The endpoint returns 500 to align with other errors.
+        logger.warning("QR generation skipped - missing dependency: %s", exc)
+        return JSONResponse(status_code=500, content={"detail": "QR generation dependency missing"})
+
+    qr = _qrcode.QRCode(error_correction=_qrcode.constants.ERROR_CORRECT_M, box_size=10, border=4)
     qr.add_data(json.dumps(data, separators=(",", ":")))
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white")

@@ -4,13 +4,23 @@ import hashlib
 import json
 from typing import Dict, Any
 
-import numpy as np
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import Pipeline
+from typing import Tuple
+import json
+import os
+import hmac
+import hashlib
+from typing import Dict, Any
 
-def generate_synthetic_event_data(num_samples: int = 2000, random_seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
+def _lazy_import_ml():
+    # Local import to avoid importing heavy ML packages at module import time
+    import numpy as np
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.model_selection import train_test_split
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.pipeline import Pipeline
+    return np, LogisticRegression, train_test_split, StandardScaler, Pipeline
+
+def generate_synthetic_event_data(num_samples: int = 2000, random_seed: int = 42) -> Tuple["np.ndarray", "np.ndarray"]:
     """Generate synthetic data for scalper detection.
 
     Features (example semantics):
@@ -21,6 +31,7 @@ def generate_synthetic_event_data(num_samples: int = 2000, random_seed: int = 42
     4: zip_mismatch (0 or 1)
     5: device_changes (0-6)
     """
+    np, _, _, _, _ = _lazy_import_ml()
     rng = np.random.default_rng(random_seed)
 
     tickets_per_txn = rng.integers(1, 13, size=num_samples)
@@ -48,8 +59,9 @@ def generate_synthetic_event_data(num_samples: int = 2000, random_seed: int = 42
     return X.astype(float), y.astype(int)
 
 
-def train_logistic_regression_pipeline() -> Pipeline:
+def train_logistic_regression_pipeline() -> "Pipeline":
     """Train a simple standardize+logistic-regression pipeline on synthetic data."""
+    np, LogisticRegression, train_test_split, StandardScaler, Pipeline = _lazy_import_ml()
     X, y = generate_synthetic_event_data()
     X_train, _, y_train, _ = train_test_split(X, y, test_size=0.2, random_state=123)
     pipeline = Pipeline(

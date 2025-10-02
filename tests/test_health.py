@@ -1,3 +1,5 @@
+import os
+os.environ.setdefault("SKIP_MODEL_TRAINING", "true")
 import httpx
 import pytest
 from src.main import app 

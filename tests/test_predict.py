@@ -1,3 +1,5 @@
+import os
+os.environ.setdefault("SKIP_MODEL_TRAINING", "true")
 import pytest
 from fastapi.testclient import TestClient
 from src.main import app

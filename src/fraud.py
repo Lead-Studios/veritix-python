@@ -43,3 +43,28 @@ def check_fraud_rules(events: List[Dict[str, Any]]) -> List[str]:
         if count > 5:
             triggered.add("excessive_purchases_user_day")
     return list(triggered)
+
+
+def determine_severity(triggered_rules: List[str]) -> str:
+    """Map triggered fraud rule IDs to a simple severity level.
+
+    Returns one of: 'none' (no rules), 'low', 'medium', 'high'.
+
+    Logic (simple heuristic):
+    - If any rule in HIGH_RULES is present -> 'high'
+    - Else if any rule in MEDIUM_RULES -> 'medium'
+    - Else if there are any triggered rules -> 'low'
+    - Else -> 'none'
+    """
+    if not triggered_rules:
+        return "none"
+
+    HIGH_RULES = {"too_many_purchases_same_ip", "excessive_purchases_user_day"}
+    MEDIUM_RULES = {"duplicate_ticket_transfer"}
+
+    s = set(triggered_rules)
+    if s & HIGH_RULES:
+        return "high"
+    if s & MEDIUM_RULES:
+        return "medium"
+    return "low"
