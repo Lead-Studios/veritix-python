@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 import base64
@@ -10,6 +11,16 @@ import numpy as np
 from sklearn.pipeline import Pipeline
 
 from src.utils import compute_signature, train_logistic_regression_pipeline
+from src.etl import run_etl_once
+
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.interval import IntervalTrigger
+except Exception:
+    BackgroundScheduler = None
+    CronTrigger = None
+    IntervalTrigger = None
 from src.types import (
     PredictRequest,
     PredictResponse,
@@ -32,6 +43,7 @@ logger = logging.getLogger("veritix")
 
 # Global model pipeline; created at startup
 model_pipeline: Pipeline | None = None
+etl_scheduler: "BackgroundScheduler | None" = None
 
 # --- Fraud Detection Endpoint ---
 @app.post("/check-fraud", response_model=FraudCheckResponse)
@@ -46,6 +58,19 @@ def check_fraud(payload: FraudCheckRequest):
 def on_startup() -> None:
     global model_pipeline
     model_pipeline = train_logistic_regression_pipeline()
+    # Optionally start ETL scheduler
+    enable_sched = os.getenv("ENABLE_ETL_SCHEDULER", "false").lower() in ("true", "1", "yes")
+    if enable_sched and BackgroundScheduler:
+        global etl_scheduler
+        etl_scheduler = BackgroundScheduler(timezone="UTC")
+        cron = os.getenv("ETL_CRON")
+        if cron and CronTrigger:
+            trigger = CronTrigger.from_crontab(cron)
+        else:
+            minutes = int(os.getenv("ETL_INTERVAL_MINUTES", "15"))
+            trigger = IntervalTrigger(minutes=minutes)
+        etl_scheduler.add_job(run_etl_once, trigger=trigger, id="etl_job", replace_existing=True)
+        etl_scheduler.start()
 
 @app.get("/")
 def read_root():
@@ -62,11 +87,17 @@ def health_check():
 
 @app.post("/predict-scalper", response_model=PredictResponse)
 def predict_scalper(payload: PredictRequest):
-    if model_pipeline is None:
-        return JSONResponse(status_code=503, content={"detail": "Model not ready"})
-    features = np.array(payload.features, dtype=float).reshape(1, -1)
-    proba = float(model_pipeline.predict_proba(features)[0, 1])
-    return PredictResponse(probability=proba)
+    global model_pipeline
+    try:
+        if model_pipeline is None:
+            # Lazy-initialize the model to ensure availability in test environments
+            model_pipeline = train_logistic_regression_pipeline()
+        features = np.array(payload.features, dtype=float).reshape(1, -1)
+        proba = float(model_pipeline.predict_proba(features)[0, 1])
+        return PredictResponse(probability=proba)
+    except Exception as exc:
+        # Return 500 on errors (e.g., invalid feature length) to align with tests
+        return JSONResponse(status_code=500, content={"detail": f"Prediction failed: {exc}"})
 
 
 @app.post("/generate-qr", response_model=QRResponse)
@@ -109,3 +140,13 @@ def validate_qr(payload: QRValidateRequest):
     except Exception as exc:
         logger.warning("Invalid QR validation attempt: %s", str(exc))
         return QRValidateResponse(isValid=False)
+
+
+@app.on_event("shutdown")
+def on_shutdown() -> None:
+    global etl_scheduler
+    if etl_scheduler:
+        try:
+            etl_scheduler.shutdown(wait=False)
+        except Exception:
+            pass
