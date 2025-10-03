@@ -13,3 +13,6 @@ SQLAlchemy==2.0.34
 psycopg2-binary==2.9.9
 APScheduler==3.10.4
 google-cloud-bigquery==3.25.0
+Flask==3.0.0
+textblob==0.17.1
+nltk==3.8.1
