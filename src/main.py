@@ -27,9 +27,14 @@ from src.types import (
     QRValidateRequest,
     QRValidateResponse,
     FraudCheckRequest,
-    FraudCheckResponse
+    FraudCheckResponse,
+    SearchEventsRequest,
+    SearchEventsResponse,
+    EventResult
 )
 from src.fraud import check_fraud_rules
+from src.mock_events import get_mock_events
+from src.search_utils import extract_keywords, filter_events_by_keywords
 
 app = FastAPI(
     title="Veritix Microservice",
@@ -50,6 +55,54 @@ def check_fraud(payload: FraudCheckRequest):
     return FraudCheckResponse(triggered_rules=triggered)
 
 
+# --- Search Events Endpoint ---
+@app.post("/search-events", response_model=SearchEventsResponse)
+def search_events(payload: SearchEventsRequest):
+    """
+    Search for events using natural language queries with simple NLP keyword extraction.
+    
+    Example queries:
+    - "music events in Lagos this weekend"
+    - "tech conferences in Abuja"
+    - "sports events today"
+    """
+    try:
+        # Extract keywords from the query
+        keywords = extract_keywords(payload.query)
+        
+        # Get mock events
+        all_events = get_mock_events()
+        
+        # Filter events based on extracted keywords
+        matching_events = filter_events_by_keywords(all_events, keywords)
+        
+        # Convert to EventResult models
+        event_results = [
+            EventResult(
+                id=event['id'],
+                name=event['name'],
+                description=event['description'],
+                event_type=event['event_type'],
+                location=event['location'],
+                date=event['date'],
+                price=event['price'],
+                capacity=event['capacity']
+            )
+            for event in matching_events
+        ]
+        
+        return SearchEventsResponse(
+            query=payload.query,
+            results=event_results,
+            count=len(event_results),
+            keywords_extracted=keywords
+        )
+    except Exception as exc:
+        logger.error("Search events failed: %s", exc)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Search failed: {exc}"}
+        )
 
 
 @app.on_event("startup")

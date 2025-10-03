@@ -1,6 +1,6 @@
 import pytest
 import json
-from app import app, analyze_sentiment
+from src.app import app, analyze_sentiment
 
 @pytest.fixture
 def client():

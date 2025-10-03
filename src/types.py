@@ -47,3 +47,36 @@ class QRValidateRequest(BaseModel):
 class QRValidateResponse(BaseModel):
     isValid: bool
     metadata: Optional[Dict[str, Any]] = None
+
+
+# --- Search Events Types ---
+class SearchEventsRequest(BaseModel):
+    """Request body for /search-events endpoint.
+    
+    Contains a natural language query to search for events.
+    """
+    query: str = Field(
+        ..., 
+        min_length=1, 
+        description="Natural language search query (e.g., 'music events in Lagos this weekend')"
+    )
+
+
+class EventResult(BaseModel):
+    """Represents a single event in search results."""
+    id: str = Field(..., description="Unique event identifier")
+    name: str = Field(..., description="Event name")
+    description: str = Field(..., description="Event description")
+    event_type: str = Field(..., description="Event category/type")
+    location: str = Field(..., description="Event location")
+    date: str = Field(..., description="Event date in ISO format")
+    price: float = Field(..., description="Ticket price")
+    capacity: int = Field(..., description="Venue capacity")
+
+
+class SearchEventsResponse(BaseModel):
+    """Response body for /search-events endpoint."""
+    query: str = Field(..., description="The original search query")
+    results: List[EventResult] = Field(..., description="List of matching events")
+    count: int = Field(..., description="Number of results found")
+    keywords_extracted: Dict[str, Any] = Field(..., description="Keywords extracted from the query")
