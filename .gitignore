@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *.pyo
+.pytest_cache/
 
 # Virtual env
 venv/

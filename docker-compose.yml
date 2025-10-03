@@ -1,0 +1,32 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: veritix-python-app:latest
+    container_name: veritix-app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - QR_SIGNING_KEY=${QR_SIGNING_KEY:-test_signing_key}
+      - DATABASE_URL=postgresql://veritix:veritix@db:5432/veritix
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16-alpine
+    container_name: veritix-db
+    environment:
+      - POSTGRES_USER=veritix
+      - POSTGRES_PASSWORD=veritix
+      - POSTGRES_DB=veritix
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+volumes:
+  db_data:
+
+
