@@ -20,5 +20,4 @@ nltk==3.8.1
 
 reportlab==4.0.7
 qrcode==7.4.2
-Pillow==10.1.0
 
