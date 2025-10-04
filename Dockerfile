@@ -39,4 +39,4 @@ EXPOSE 8000
 # Command to run the application using Uvicorn
 # The command format is: uvicorn [module:app_object] --host [ip] --port [port]
 # We use the standard uvicorn worker configuration
-CMD ["python", "run.py"]
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

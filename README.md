@@ -14,7 +14,7 @@ docker compose build
 docker compose up -d
 ```
 
-The API will be available at `http://localhost:8000`.
+The API will be available at `http://localhost:8000`. The service runs with `uvicorn src.main:app --host 0.0.0.0 --port 8000`.
 
 Health check:
 ```bash
