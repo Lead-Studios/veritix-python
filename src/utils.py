@@ -5,7 +5,6 @@ import json
 from typing import Dict, Any
 
 from typing import Tuple
-import json
 import os
 import hmac
 import hashlib
