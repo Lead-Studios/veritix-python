@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, date
 
 # --- Fraud Detection Types ---
 class FraudCheckRequest(BaseModel):
@@ -80,3 +80,18 @@ class SearchEventsResponse(BaseModel):
     results: List[EventResult] = Field(..., description="List of matching events")
     count: int = Field(..., description="Number of results found")
     keywords_extracted: Dict[str, Any] = Field(..., description="Keywords extracted from the query")
+
+
+class DailyReportRequest(BaseModel):
+    """Request body for /generate-daily-report endpoint."""
+    target_date: Optional[str] = Field(None, description="Target date in YYYY-MM-DD format. Defaults to today.")
+    output_format: str = Field("csv", description="Output format: 'csv' or 'json'")
+
+
+class DailyReportResponse(BaseModel):
+    """Response body for /generate-daily-report endpoint."""
+    success: bool = Field(..., description="Whether report generation succeeded")
+    report_path: Optional[str] = Field(None, description="Path to generated report file")
+    report_date: str = Field(..., description="Date of the report")
+    summary: Dict[str, Any] = Field(..., description="Summary statistics")
+    message: Optional[str] = Field(None, description="Additional information or error message")

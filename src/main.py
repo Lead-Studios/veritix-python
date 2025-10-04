@@ -30,11 +30,15 @@ from src.types import (
     FraudCheckResponse,
     SearchEventsRequest,
     SearchEventsResponse,
-    EventResult
+    EventResult,
+    DailyReportRequest,
+    DailyReportResponse
 )
 from src.fraud import check_fraud_rules
 from src.mock_events import get_mock_events
 from src.search_utils import extract_keywords, filter_events_by_keywords
+from src.report_service import generate_daily_report_csv
+from datetime import date
 
 app = FastAPI(
     title="Veritix Microservice",
@@ -206,6 +210,65 @@ def validate_qr(payload: QRValidateRequest):
     except Exception as exc:
         logger.warning("Invalid QR validation attempt: %s", str(exc))
         return QRValidateResponse(isValid=False)
+
+
+@app.post("/generate-daily-report", response_model=DailyReportResponse)
+def generate_daily_report(payload: DailyReportRequest):
+    try:
+        # Parse target_date
+        target_date = None
+        if payload.target_date:
+            try:
+                target_date = date.fromisoformat(payload.target_date)
+            except ValueError:
+                return JSONResponse(
+                    status_code=400,
+                    content={"detail": "Invalid date format. Use YYYY-MM-DD."}
+                )
+        else:
+            target_date = date.today()
+        
+        # Validate output format
+        if payload.output_format not in ["csv", "json"]:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Invalid output_format. Use 'csv' or 'json'."}
+            )
+        
+        # Generate report
+        report_path = generate_daily_report_csv(
+            target_date=target_date,
+            output_format=payload.output_format
+        )
+        
+        # Query summary stats for response
+        from src.report_service import _query_daily_sales, _query_transfer_stats, _query_invalid_scans
+        sales_data = _query_daily_sales(target_date)
+        transfer_stats = _query_transfer_stats(target_date)
+        invalid_scan_stats = _query_invalid_scans(target_date)
+        
+        total_sales = sum(row["tickets_sold"] for row in sales_data)
+        total_revenue = sum(row["revenue"] for row in sales_data)
+        
+        return DailyReportResponse(
+            success=True,
+            report_path=report_path,
+            report_date=str(target_date),
+            summary={
+                "total_sales": total_sales,
+                "total_revenue": total_revenue,
+                "total_transfers": transfer_stats.get("total_transfers", 0),
+                "invalid_scans": invalid_scan_stats.get("invalid_scans", 0)
+            },
+            message=f"Report generated successfully at {report_path}"
+        )
+    
+    except Exception as exc:
+        logger.error("Daily report generation failed: %s", exc)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Report generation failed: {exc}"}
+        )
 
 
 @app.on_event("shutdown")
