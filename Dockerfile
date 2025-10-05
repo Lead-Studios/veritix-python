@@ -2,20 +2,20 @@
 
 # Stage 1: Build Stage
 # Use a slim, official Python image for efficiency
-FROM python:3.11-slim as builder
+FROM python:3.11-slim AS builder
 
 # Set the working directory inside the container
 WORKDIR /app
 
 # Prevent Python from writing .pyc files and buffering stdout/stderr
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
 # Copy only the requirements file first to take advantage of Docker layer caching
 COPY requirements.txt .
 
-# Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install dependencies with increased timeout and retry
+RUN pip install --no-cache-dir --timeout=300 --retries=3 --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org -r requirements.txt
 
 # Stage 2: Production Stage (using the same slim image)
 FROM python:3.11-slim
