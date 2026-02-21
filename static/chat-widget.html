@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Veritix Chat Widget</title>
+    <style>
+        /* Chat Widget Styles */
+        .chat-widget {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 350px;
+            height: 500px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            background: white;
+            display: flex;
+            flex-direction: column;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            z-index: 1000;
+            overflow: hidden;
+        }
+
+        .chat-header {
+            background: #2563eb;
+            color: white;
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top-left-radius: 10px;
+            border-top-right-radius: 10px;
+        }
+
+        .chat-header h3 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .chat-close {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 15px;
+            overflow-y: auto;
+            background: #f8fafc;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .message-user {
+            align-items: flex-end;
+        }
+
+        .message-agent {
+            align-items: flex-start;
+        }
+
+        .message-content {
+            max-width: 80%;
+            padding: 10px 15px;
+            border-radius: 18px;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        .message-user .message-content {
+            background: #2563eb;
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message-agent .message-content {
+            background: white;
+            color: #334155;
+            border: 1px solid #e2e8f0;
+            border-bottom-left-radius: 4px;
+        }
+
+        .message-timestamp {
+            font-size: 11px;
+            color: #94a3b8;
+            margin-top: 4px;
+            margin-left: 4px;
+            margin-right: 4px;
+        }
+
+        .chat-input-container {
+            padding: 15px;
+            border-top: 1px solid #e2e8f0;
+            background: white;
+            display: flex;
+            gap: 10px;
+        }
+
+        .chat-input {
+            flex: 1;
+            padding: 12px 15px;
+            border: 1px solid #cbd5e1;
+            border-radius: 24px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .chat-input:focus {
+            border-color: #2563eb;
+        }
+
+        .chat-send {
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+
+        .chat-send:hover {
+            background: #1d4ed8;
+        }
+
+        .chat-send:disabled {
+            background: #94a3b8;
+            cursor: not-allowed;
+        }
+
+        .chat-trigger {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 60px;
+            height: 60px;
+            background: #2563eb;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+            z-index: 1001;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .chat-trigger:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+        }
+
+        .chat-trigger svg {
+            width: 24px;
+            height: 24px;
+            fill: white;
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #ef4444;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 1002;
+            transform: translateX(120%);
+            transition: transform 0.3s ease-out;
+        }
+
+        .notification.show {
+            transform: translateX(0);
+        }
+
+        .typing-indicator {
+            display: none;
+            padding: 10px 15px;
+            color: #94a3b8;
+            font-size: 13px;
+            font-style: italic;
+        }
+
+        .typing-indicator.show {
+            display: block;
+        }
+
+        .escalation-banner {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 12px;
+            margin-bottom: 15px;
+            font-size: 13px;
+            color: #92400e;
+            display: none;
+        }
+
+        .escalation-banner.show {
+            display: block;
+        }
+
+        /* Loading states */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #e2e8f0;
+            border-radius: 50%;
+            border-top-color: #2563eb;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Responsive design */
+        @media (max-width: 480px) {
+            .chat-widget {
+                width: calc(100vw - 20px);
+                height: calc(100vh - 100px);
+                bottom: 10px;
+                right: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Chat Trigger Button -->
+    <div class="chat-trigger" id="chatTrigger">
+        <svg viewBox="0 0 24 24">
+            <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
+        </svg>
+    </div>
+
+    <!-- Chat Widget -->
+    <div class="chat-widget" id="chatWidget" style="display: none;">
+        <div class="chat-header">
+            <h3>Support Chat</h3>
+            <button class="chat-close" id="chatClose">×</button>
+        </div>
+        
+        <div class="escalation-banner" id="escalationBanner">
+            This conversation has been escalated to human support.
+        </div>
+        
+        <div class="chat-messages" id="chatMessages">
+            <div class="message message-agent">
+                <div class="message-content">Hello! How can I help you today?</div>
+                <div class="message-timestamp">Just now</div>
+            </div>
+        </div>
+        
+        <div class="typing-indicator" id="typingIndicator">
+            Support is typing...
+        </div>
+        
+        <div class="chat-input-container">
+            <input type="text" class="chat-input" id="chatInput" placeholder="Type your message..." maxlength="500">
+            <button class="chat-send" id="chatSend">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Notification -->
+    <div class="notification" id="notification"></div>
+
+    <script>
+        class ChatWidget {
+            constructor() {
+                this.conversationId = this.generateConversationId();
+                this.userId = this.getUserId();
+                this.websocket = null;
+                this.isConnected = false;
+                this.backendUrl = 'ws://localhost:8000'; // Change this to your backend URL
+                
+                this.initializeElements();
+                this.attachEventListeners();
+                this.loadMessageHistory();
+            }
+
+            initializeElements() {
+                this.chatTrigger = document.getElementById('chatTrigger');
+                this.chatWidget = document.getElementById('chatWidget');
+                this.chatClose = document.getElementById('chatClose');
+                this.chatMessages = document.getElementById('chatMessages');
+                this.chatInput = document.getElementById('chatInput');
+                this.chatSend = document.getElementById('chatSend');
+                this.notification = document.getElementById('notification');
+                this.typingIndicator = document.getElementById('typingIndicator');
+                this.escalationBanner = document.getElementById('escalationBanner');
+            }
+
+            attachEventListeners() {
+                this.chatTrigger.addEventListener('click', () => this.toggleChat());
+                this.chatClose.addEventListener('click', () => this.toggleChat());
+                this.chatSend.addEventListener('click', () => this.sendMessage());
+                this.chatInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        this.sendMessage();
+                    }
+                });
+
+                // Close chat when clicking outside
+                document.addEventListener('click', (e) => {
+                    if (!this.chatWidget.contains(e.target) && 
+                        !this.chatTrigger.contains(e.target) && 
+                        this.chatWidget.style.display !== 'none') {
+                        this.closeChat();
+                    }
+                });
+            }
+
+            generateConversationId() {
+                return 'conv_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            }
+
+            getUserId() {
+                // In a real app, this would come from authentication
+                let userId = localStorage.getItem('chat_user_id');
+                if (!userId) {
+                    userId = 'user_' + Date.now();
+                    localStorage.setItem('chat_user_id', userId);
+                }
+                return userId;
+            }
+
+            toggleChat() {
+                if (this.chatWidget.style.display === 'none') {
+                    this.openChat();
+                } else {
+                    this.closeChat();
+                }
+            }
+
+            openChat() {
+                this.chatWidget.style.display = 'flex';
+                this.chatTrigger.style.display = 'none';
+                this.chatInput.focus();
+                
+                if (!this.isConnected) {
+                    this.connectWebSocket();
+                }
+            }
+
+            closeChat() {
+                this.chatWidget.style.display = 'none';
+                this.chatTrigger.style.display = 'flex';
+            }
+
+            connectWebSocket() {
+                try {
+                    const wsUrl = `${this.backendUrl.replace('http', 'ws')}/ws/chat/${this.conversationId}/${this.userId}`;
+                    this.websocket = new WebSocket(wsUrl);
+                    
+                    this.websocket.onopen = () => {
+                        console.log('Connected to chat server');
+                        this.isConnected = true;
+                        this.showNotification('Connected to support', 'success');
+                    };
+                    
+                    this.websocket.onmessage = (event) => {
+                        this.handleMessage(event.data);
+                    };
+                    
+                    this.websocket.onclose = () => {
+                        console.log('Disconnected from chat server');
+                        this.isConnected = false;
+                        this.showNotification('Connection lost. Reconnecting...', 'warning');
+                        // Attempt to reconnect after 3 seconds
+                        setTimeout(() => {
+                            if (this.chatWidget.style.display !== 'none') {
+                                this.connectWebSocket();
+                            }
+                        }, 3000);
+                    };
+                    
+                    this.websocket.onerror = (error) => {
+                        console.error('WebSocket error:', error);
+                        this.showNotification('Connection error', 'error');
+                    };
+                    
+                } catch (error) {
+                    console.error('Failed to connect:', error);
+                    this.showNotification('Failed to connect to chat service', 'error');
+                }
+            }
+
+            async sendMessage() {
+                const content = this.chatInput.value.trim();
+                if (!content || !this.isConnected) return;
+
+                const message = {
+                    content: content,
+                    sender_type: 'user',
+                    metadata: {
+                        timestamp: new Date().toISOString()
+                    }
+                };
+
+                try {
+                    // Send via WebSocket
+                    this.websocket.send(JSON.stringify(message));
+                    
+                    // Add to UI immediately
+                    this.addMessageToUI({
+                        ...message,
+                        sender_id: this.userId,
+                        timestamp: new Date().toISOString()
+                    }, 'user');
+                    
+                    // Clear input
+                    this.chatInput.value = '';
+                    this.chatInput.focus();
+                    
+                } catch (error) {
+                    console.error('Failed to send message:', error);
+                    this.showNotification('Failed to send message', 'error');
+                }
+            }
+
+            handleMessage(data) {
+                try {
+                    const message = JSON.parse(data);
+                    
+                    if (message.type === 'escalation') {
+                        this.showEscalationNotification(message);
+                        return;
+                    }
+                    
+                    // Hide typing indicator when receiving message
+                    this.hideTypingIndicator();
+                    
+                    // Add message to UI
+                    this.addMessageToUI(message, message.sender_type === 'user' ? 'user' : 'agent');
+                    
+                } catch (error) {
+                    console.error('Error parsing message:', error);
+                }
+            }
+
+            addMessageToUI(message, senderType) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message message-${senderType}`;
+                
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'message-content';
+                contentDiv.textContent = message.content;
+                
+                const timestampDiv = document.createElement('div');
+                timestampDiv.className = 'message-timestamp';
+                timestampDiv.textContent = this.formatTimestamp(message.timestamp);
+                
+                messageDiv.appendChild(contentDiv);
+                messageDiv.appendChild(timestampDiv);
+                
+                this.chatMessages.appendChild(messageDiv);
+                this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+            }
+
+            showTypingIndicator() {
+                this.typingIndicator.classList.add('show');
+                this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+            }
+
+            hideTypingIndicator() {
+                this.typingIndicator.classList.remove('show');
+            }
+
+            showEscalationNotification(escalation) {
+                this.escalationBanner.classList.add('show');
+                this.escalationBanner.textContent = escalation.message || 'This conversation has been escalated to human support.';
+                this.showNotification('Conversation escalated to human support', 'info');
+                
+                // Auto-hide banner after 10 seconds
+                setTimeout(() => {
+                    this.escalationBanner.classList.remove('show');
+                }, 10000);
+            }
+
+            showNotification(message, type = 'info') {
+                this.notification.textContent = message;
+                this.notification.className = `notification show ${type}`;
+                
+                setTimeout(() => {
+                    this.notification.classList.remove('show');
+                }, 3000);
+            }
+
+            formatTimestamp(timestamp) {
+                const date = new Date(timestamp);
+                const now = new Date();
+                const diff = now - date;
+                
+                if (diff < 60000) { // Less than 1 minute
+                    return 'Just now';
+                } else if (diff < 3600000) { // Less than 1 hour
+                    const minutes = Math.floor(diff / 60000);
+                    return `${minutes}m ago`;
+                } else if (diff < 86400000) { // Less than 1 day
+                    const hours = Math.floor(diff / 3600000);
+                    return `${hours}h ago`;
+                } else {
+                    return date.toLocaleDateString();
+                }
+            }
+
+            async loadMessageHistory() {
+                try {
+                    const response = await fetch(`/chat/${this.conversationId}/history`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        // Clear initial message and load history
+                        this.chatMessages.innerHTML = '';
+                        data.messages.forEach(msg => {
+                            this.addMessageToUI(msg, msg.sender_type === 'user' ? 'user' : 'agent');
+                        });
+                    }
+                } catch (error) {
+                    console.error('Failed to load message history:', error);
+                }
+            }
+
+            async escalateConversation(reason = 'user_request') {
+                try {
+                    const response = await fetch(`/chat/${this.conversationId}/escalate`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ reason })
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        this.showNotification('Conversation escalated successfully', 'success');
+                        return data;
+                    } else {
+                        throw new Error('Failed to escalate conversation');
+                    }
+                } catch (error) {
+                    console.error('Escalation failed:', error);
+                    this.showNotification('Failed to escalate conversation', 'error');
+                }
+            }
+        }
+
+        // Initialize chat widget when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            window.chatWidget = new ChatWidget();
+        });
+    </script>
+</body>
+</html>
