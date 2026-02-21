@@ -1,0 +1,43 @@
+[flake8]
+max-line-length = 127
+max-complexity = 10
+select = B,C,E,F,W,T4,B9
+ignore = 
+    # Ignore missing docstrings in tests
+    D100,D101,D102,D103,D104,D105,D106,D107,
+    # Allow line breaks before binary operators
+    W503,
+    # Allow line breaks after binary operators
+    W504,
+    # Allow f-strings in logging
+    G004,
+    # Allow star imports in __init__.py
+    F401,
+    # Allow unused imports in __init__.py
+    F403
+
+exclude = 
+    .git,
+    __pycache__,
+    venv/,
+    .venv/,
+    build/,
+    dist/,
+    .eggs/,
+    *.egg-info/,
+    migrations/
+
+per-file-ignores =
+    # Ignore import at top of file in __init__.py
+    __init__.py:F401
+    # Relax complexity requirements for tests
+    tests/*:C901
+    # Allow longer lines in tests
+    tests/*:E501
+
+# Show source code in output
+show-source = True
+# Show statistics at the end
+statistics = True
+# Count errors
+count = True

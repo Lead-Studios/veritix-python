@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: veritix-python-app:test
+    environment:
+      - PYTHONUNBUFFERED=1
+      - QR_SIGNING_KEY=test_signing_key
+      - DATABASE_URL=postgresql://veritix:veritix@db:5432/veritix_test
+      - SKIP_MODEL_TRAINING=true
+    command: python -m pytest --cov=src --cov-report=term-missing
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=veritix
+      - POSTGRES_PASSWORD=veritix
+      - POSTGRES_DB=veritix_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U veritix"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5433:5432"
