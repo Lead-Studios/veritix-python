@@ -58,6 +58,9 @@ from src.types_custom import (
     DailyReportRequest,
     DailyReportResponse
 )
+from src.revenue_sharing_service import revenue_sharing_service
+from src.revenue_sharing_models import EventRevenueInput, RevenueCalculationResult, RevenueShareConfig
+from typing import List
 from src.fraud import check_fraud_rules
 from src.mock_events import get_mock_events
 from src.search_utils import extract_keywords, filter_events_by_keywords
@@ -582,6 +585,89 @@ def generate_daily_report(payload: DailyReportRequest):
             status_code=500,
             content={"detail": f"Report generation failed: {exc}"}
         )
+
+
+@app.post("/calculate-revenue-share", response_model=RevenueCalculationResult)
+def calculate_revenue_share(input_data: EventRevenueInput):
+    """Calculate revenue shares for stakeholders based on event sales and smart contract rules."""
+    log_info("Revenue share calculation requested", {
+        "event_id": input_data.event_id,
+        "total_sales": input_data.total_sales,
+        "ticket_count": input_data.ticket_count
+    })
+    
+    # Validate input
+    is_valid, errors = revenue_sharing_service.validate_input(input_data)
+    if not is_valid:
+        log_error("Revenue share calculation validation failed", {"errors": errors})
+        raise HTTPException(status_code=400, detail={"errors": errors})
+    
+    try:
+        result = revenue_sharing_service.calculate_revenue_shares(input_data)
+        log_info("Revenue share calculation successful", {
+            "event_id": input_data.event_id,
+            "total_paid_out": result.total_paid_out,
+            "stakeholder_count": len(result.distributions)
+        })
+        return result
+    except Exception as e:
+        log_error("Revenue share calculation failed", {"error": str(e)})
+        raise HTTPException(status_code=500, detail=f"Revenue calculation failed: {str(e)}")
+
+
+@app.post("/calculate-revenue-share/batch", response_model=List[RevenueCalculationResult])
+def calculate_revenue_share_batch(inputs: List[EventRevenueInput]):
+    """Calculate revenue shares for multiple events."""
+    log_info("Batch revenue share calculation requested", {
+        "event_count": len(inputs)
+    })
+    
+    results = []
+    for input_data in inputs:
+        try:
+            is_valid, errors = revenue_sharing_service.validate_input(input_data)
+            if not is_valid:
+                log_error("Batch revenue calculation validation failed", {
+                    "event_id": input_data.event_id,
+                    "errors": errors
+                })
+                continue
+            
+            result = revenue_sharing_service.calculate_revenue_shares(input_data)
+            results.append(result)
+        except Exception as e:
+            log_error("Batch revenue calculation failed", {
+                "event_id": input_data.event_id,
+                "error": str(e)
+            })
+            continue
+    
+    log_info("Batch revenue share calculation completed", {
+        "processed_count": len(results),
+        "requested_count": len(inputs)
+    })
+    
+    return results
+
+
+@app.get("/revenue-share/config", response_model=RevenueShareConfig)
+def get_revenue_share_config():
+    """Get the current revenue sharing configuration."""
+    log_info("Revenue share configuration requested")
+    return revenue_sharing_service.config
+
+
+@app.get("/revenue-share/example", response_model=EventRevenueInput)
+def get_example_revenue_input():
+    """Get an example revenue calculation input."""
+    log_info("Revenue share example input requested")
+    return EventRevenueInput(
+        event_id="event_123",
+        total_sales=10000.0,
+        ticket_count=100,
+        currency="USD",
+        additional_fees={"service_fee": 50.0}
+    )
 
 
 @app.on_event("shutdown")
