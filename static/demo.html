@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Veritix Chat Demo</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f1f5f9;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        
+        h1 {
+            color: #1e293b;
+            margin-top: 0;
+        }
+        
+        .demo-section {
+            margin: 30px 0;
+            padding: 20px;
+            background: #f8fafc;
+            border-radius: 8px;
+            border-left: 4px solid #2563eb;
+        }
+        
+        .demo-section h2 {
+            margin-top: 0;
+            color: #2563eb;
+        }
+        
+        .instructions {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+        
+        .instructions h3 {
+            margin-top: 0;
+            color: #92400e;
+        }
+        
+        .instructions ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        
+        .instructions li {
+            margin: 5px 0;
+            color: #92400e;
+        }
+        
+        .api-info {
+            background: #dbeafe;
+            border-left: 4px solid #3b82f6;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+        
+        .api-info h3 {
+            margin-top: 0;
+            color: #1e40af;
+        }
+        
+        .endpoint {
+            background: white;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 8px 0;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        
+        .btn {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+            transition: background 0.2s;
+        }
+        
+        .btn:hover {
+            background: #1d4ed8;
+        }
+        
+        .btn.secondary {
+            background: #64748b;
+        }
+        
+        .btn.secondary:hover {
+            background: #475569;
+        }
+        
+        .status {
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+            font-weight: 500;
+        }
+        
+        .status.success {
+            background: #dcfce7;
+            color: #166534;
+            border: 1px solid #86efac;
+        }
+        
+        .status.error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+        }
+        
+        .status.info {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #93c5fd;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>💬 Veritix Chat Widget Demo</h1>
+        
+        <div class="instructions">
+            <h3>📋 How to Use the Chat Widget</h3>
+            <ul>
+                <li>Click the chat bubble icon in the bottom right corner to open the chat</li>
+                <li>Type your message in the input field and press Enter or click Send</li>
+                <li>Messages are sent in real-time via WebSocket connection</li>
+                <li>Message history is automatically loaded when you open the chat</li>
+                <li>Use the escalation button to simulate human support escalation</li>
+                <li>Close the chat by clicking the × button in the header</li>
+            </ul>
+        </div>
+        
+        <div class="demo-section">
+            <h2>🚀 Quick Actions</h2>
+            <button class="btn" onclick="openChat()">Open Chat Widget</button>
+            <button class="btn secondary" onclick="simulateAgentMessage()">Simulate Agent Response</button>
+            <button class="btn secondary" onclick="triggerEscalation()">Trigger Escalation</button>
+            <button class="btn secondary" onclick="checkBackendStatus()">Check Backend Status</button>
+        </div>
+        
+        <div class="api-info">
+            <h3>🔌 API Endpoints</h3>
+            <div class="endpoint">GET /chat/{conversation_id}/history - Get message history</div>
+            <div class="endpoint">POST /chat/{conversation_id}/messages - Send message</div>
+            <div class="endpoint">POST /chat/{conversation_id}/escalate - Escalate conversation</div>
+            <div class="endpoint">GET /chat/{conversation_id}/escalations - Get escalations</div>
+            <div class="endpoint">GET /chat/user/{user_id}/conversations - Get user conversations</div>
+            <div class="endpoint">WebSocket: /ws/chat/{conversation_id}/{user_id} - Real-time messaging</div>
+        </div>
+        
+        <div class="demo-section">
+            <h2>📊 Chat Information</h2>
+            <div id="chatInfo">
+                <p><strong>Current Conversation ID:</strong> <span id="conversationId">Not started</span></p>
+                <p><strong>User ID:</strong> <span id="userId">Not set</span></p>
+                <p><strong>Connection Status:</strong> <span id="connectionStatus">Disconnected</span></p>
+                <p><strong>Messages Sent:</strong> <span id="messagesSent">0</span></p>
+            </div>
+        </div>
+        
+        <div id="statusMessages"></div>
+    </div>
+
+    <!-- Include the chat widget -->
+    <script src="chat-widget.html"></script>
+    
+    <script>
+        // Demo functionality
+        let messageCount = 0;
+        
+        function openChat() {
+            if (window.chatWidget) {
+                window.chatWidget.openChat();
+                addStatusMessage('Chat widget opened', 'success');
+            } else {
+                addStatusMessage('Chat widget not loaded yet', 'error');
+            }
+        }
+        
+        function simulateAgentMessage() {
+            if (window.chatWidget && window.chatWidget.websocket && window.chatWidget.websocket.readyState === WebSocket.OPEN) {
+                const agentMessage = {
+                    id: 'agent_' + Date.now(),
+                    sender_id: 'support_agent',
+                    sender_type: 'agent',
+                    content: 'Thanks for your message! How else can I help you today?',
+                    timestamp: new Date().toISOString(),
+                    conversation_id: window.chatWidget.conversationId
+                };
+                
+                window.chatWidget.websocket.send(JSON.stringify(agentMessage));
+                addStatusMessage('Simulated agent message sent', 'success');
+            } else {
+                addStatusMessage('Chat not connected. Please open the chat first.', 'error');
+            }
+        }
+        
+        async function triggerEscalation() {
+            if (window.chatWidget) {
+                try {
+                    await window.chatWidget.escalateConversation('demo_escalation');
+                    addStatusMessage('Conversation escalated to human support', 'info');
+                } catch (error) {
+                    addStatusMessage('Failed to escalate: ' + error.message, 'error');
+                }
+            } else {
+                addStatusMessage('Chat widget not initialized', 'error');
+            }
+        }
+        
+        async function checkBackendStatus() {
+            try {
+                const response = await fetch('/health');
+                if (response.ok) {
+                    const data = await response.json();
+                    addStatusMessage(`Backend is running: ${data.status}`, 'success');
+                } else {
+                    addStatusMessage('Backend health check failed', 'error');
+                }
+            } catch (error) {
+                addStatusMessage('Cannot reach backend: ' + error.message, 'error');
+            }
+        }
+        
+        function addStatusMessage(message, type) {
+            const statusDiv = document.createElement('div');
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+            
+            document.getElementById('statusMessages').appendChild(statusDiv);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                if (statusDiv.parentNode) {
+                    statusDiv.parentNode.removeChild(statusDiv);
+                }
+            }, 5000);
+        }
+        
+        // Update chat info when widget is ready
+        document.addEventListener('DOMContentLoaded', () => {
+            // Update info periodically
+            setInterval(() => {
+                if (window.chatWidget) {
+                    document.getElementById('conversationId').textContent = window.chatWidget.conversationId;
+                    document.getElementById('userId').textContent = window.chatWidget.userId;
+                    document.getElementById('connectionStatus').textContent = 
+                        window.chatWidget.isConnected ? 'Connected' : 'Disconnected';
+                    document.getElementById('messagesSent').textContent = messageCount;
+                }
+            }, 1000);
+        });
+        
+        // Listen for message events to update count
+        const originalAddMessageToUI = window.ChatWidget ? window.ChatWidget.prototype.addMessageToUI : null;
+        if (originalAddMessageToUI) {
+            window.ChatWidget.prototype.addMessageToUI = function(message, senderType) {
+                if (senderType === 'user') {
+                    messageCount++;
+                }
+                return originalAddMessageToUI.call(this, message, senderType);
+            };
+        }
+    </script>
+</body>
+</html>

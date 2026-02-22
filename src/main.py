@@ -1,6 +1,8 @@
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+import os
 from pydantic import BaseModel, Field
 from typing import List
 import numpy as np
@@ -22,6 +24,7 @@ from typing import Any
 
 from src.utils import compute_signature, train_logistic_regression_pipeline
 from src.etl import run_etl_once
+from src.chat import chat_manager, ChatMessage, EscalationEvent
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -50,7 +53,8 @@ from src.fraud import check_fraud_rules
 from src.mock_events import get_mock_events
 from src.search_utils import extract_keywords, filter_events_by_keywords
 from src.report_service import generate_daily_report_csv
-from datetime import date
+from datetime import date, datetime
+import uuid
 
 
 app = FastAPI(
@@ -59,11 +63,148 @@ app = FastAPI(
     description="A microservice backend for the Veritix platform."
 )
 
+# Serve static files
+static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
 logger = logging.getLogger("veritix")
 
 # Global model pipeline; created at startup
 
 model_pipeline: Pipeline | None = None
+
+# Chat endpoints
+@app.websocket("/ws/chat/{conversation_id}/{user_id}")
+async def websocket_chat(websocket: WebSocket, conversation_id: str, user_id: str):
+    """WebSocket endpoint for real-time chat."""
+    await chat_manager.connect(websocket, conversation_id, user_id)
+    try:
+        while True:
+            # Receive message from client
+            data = await websocket.receive_text()
+            try:
+                message_data = json.loads(data)
+                
+                # Create chat message
+                message = ChatMessage(
+                    id=str(uuid.uuid4()),
+                    sender_id=user_id,
+                    sender_type=message_data.get("sender_type", "user"),
+                    content=message_data["content"],
+                    timestamp=datetime.utcnow(),
+                    conversation_id=conversation_id,
+                    metadata=message_data.get("metadata", {})
+                )
+                
+                # Send message to all participants
+                await chat_manager.send_message(message)
+                
+            except json.JSONDecodeError:
+                logger.warning("Invalid JSON received from client")
+            except KeyError as e:
+                logger.warning(f"Missing required field: {e}")
+            except Exception as e:
+                logger.error(f"Error processing message: {e}")
+                
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for user {user_id} in conversation {conversation_id}")
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+    finally:
+        await chat_manager.disconnect(websocket, conversation_id, user_id)
+
+
+@app.post("/chat/{conversation_id}/messages")
+async def send_message(conversation_id: str, message: dict):
+    """Send a message to a conversation (HTTP endpoint)."""
+    try:
+        chat_message = ChatMessage(
+            id=str(uuid.uuid4()),
+            sender_id=message["sender_id"],
+            sender_type=message["sender_type"],
+            content=message["content"],
+            timestamp=datetime.utcnow(),
+            conversation_id=conversation_id,
+            metadata=message.get("metadata", {})
+        )
+        
+        success = await chat_manager.send_message(chat_message)
+        if success:
+            return {"status": "success", "message_id": chat_message.id}
+        else:
+            return {"status": "error", "message": "Failed to send message"}, 500
+            
+    except Exception as e:
+        logger.error(f"Error sending message: {e}")
+        return {"status": "error", "message": str(e)}, 500
+
+
+@app.get("/chat/{conversation_id}/history")
+async def get_message_history(conversation_id: str, limit: int = 50):
+    """Get message history for a conversation."""
+    try:
+        messages = chat_manager.get_message_history(conversation_id, limit)
+        return {
+            "conversation_id": conversation_id,
+            "messages": [msg.dict() for msg in messages],
+            "count": len(messages)
+        }
+    except Exception as e:
+        logger.error(f"Error getting message history: {e}")
+        return {"status": "error", "message": str(e)}, 500
+
+
+@app.post("/chat/{conversation_id}/escalate")
+async def escalate_conversation(conversation_id: str, escalation: dict):
+    """Escalate a conversation to human support."""
+    try:
+        reason = escalation.get("reason", "user_request")
+        metadata = escalation.get("metadata", {})
+        
+        escalation_event = await chat_manager.escalate_conversation(
+            conversation_id, reason, metadata
+        )
+        
+        return {
+            "status": "success",
+            "escalation_id": escalation_event.id,
+            "reason": escalation_event.reason,
+            "timestamp": escalation_event.timestamp.isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error escalating conversation: {e}")
+        return {"status": "error", "message": str(e)}, 500
+
+
+@app.get("/chat/{conversation_id}/escalations")
+async def get_escalations(conversation_id: str):
+    """Get escalation events for a conversation."""
+    try:
+        escalations = chat_manager.get_escalations(conversation_id)
+        return {
+            "conversation_id": conversation_id,
+            "escalations": [esc.dict() for esc in escalations],
+            "count": len(escalations)
+        }
+    except Exception as e:
+        logger.error(f"Error getting escalations: {e}")
+        return {"status": "error", "message": str(e)}, 500
+
+
+@app.get("/chat/user/{user_id}/conversations")
+async def get_user_conversations(user_id: str):
+    """Get all conversations for a user."""
+    try:
+        conversation_ids = chat_manager.get_user_conversations(user_id)
+        return {
+            "user_id": user_id,
+            "conversations": conversation_ids,
+            "count": len(conversation_ids)
+        }
+    except Exception as e:
+        logger.error(f"Error getting user conversations: {e}")
+        return {"status": "error", "message": str(e)}, 500
 
 mock_user_events: Dict[str, list[str]] = {
     "user1": ["concert_A", "concert_B"],
