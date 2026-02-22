@@ -60,6 +60,7 @@ from src.types_custom import (
 )
 from src.revenue_sharing_service import revenue_sharing_service
 from src.revenue_sharing_models import EventRevenueInput, RevenueCalculationResult, RevenueShareConfig
+from src.analytics.service import analytics_service
 from typing import List
 from src.fraud import check_fraud_rules
 from src.mock_events import get_mock_events
@@ -364,6 +365,108 @@ def search_events(payload: SearchEventsRequest):
             status_code=500,
             content={"detail": f"Search failed: {exc}"}
         )
+
+
+@app.get("/stats")
+def get_analytics_stats(event_id: str = None):
+    """Get analytics statistics for ticket scans, transfers, and invalid attempts per event."""
+    log_info("Analytics stats requested", {
+        "event_id": event_id
+    })
+    
+    try:
+        if event_id:
+            # Get stats for specific event
+            result = analytics_service.get_stats_for_event(event_id)
+            log_info("Analytics stats retrieved for event", {
+                "event_id": event_id,
+                "scan_count": result.get("scan_count", 0),
+                "transfer_count": result.get("transfer_count", 0),
+                "invalid_attempt_count": result.get("invalid_attempt_count", 0)
+            })
+            return result
+        else:
+            # Get stats for all events
+            result = analytics_service.get_stats_for_all_events()
+            log_info("Analytics stats retrieved for all events", {
+                "event_count": len(result)
+            })
+            return result
+    except Exception as e:
+        log_error("Failed to retrieve analytics stats", {
+            "event_id": event_id,
+            "error": str(e)
+        })
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve analytics stats: {str(e)}")
+
+
+@app.get("/stats/scans")
+def get_recent_scans(event_id: str, limit: int = 50):
+    """Get recent scan records for an event."""
+    log_info("Recent scans requested", {
+        "event_id": event_id,
+        "limit": limit
+    })
+    
+    try:
+        scans = analytics_service.get_recent_scans(event_id, limit)
+        log_info("Recent scans retrieved", {
+            "event_id": event_id,
+            "scan_count": len(scans)
+        })
+        return {"event_id": event_id, "scans": scans, "count": len(scans)}
+    except Exception as e:
+        log_error("Failed to retrieve recent scans", {
+            "event_id": event_id,
+            "error": str(e)
+        })
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve recent scans: {str(e)}")
+
+
+@app.get("/stats/transfers")
+def get_recent_transfers(event_id: str, limit: int = 50):
+    """Get recent transfer records for an event."""
+    log_info("Recent transfers requested", {
+        "event_id": event_id,
+        "limit": limit
+    })
+    
+    try:
+        transfers = analytics_service.get_recent_transfers(event_id, limit)
+        log_info("Recent transfers retrieved", {
+            "event_id": event_id,
+            "transfer_count": len(transfers)
+        })
+        return {"event_id": event_id, "transfers": transfers, "count": len(transfers)}
+    except Exception as e:
+        log_error("Failed to retrieve recent transfers", {
+            "event_id": event_id,
+            "error": str(e)
+        })
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve recent transfers: {str(e)}")
+
+
+@app.get("/stats/invalid-attempts")
+def get_invalid_attempts(event_id: str, limit: int = 50):
+    """Get recent invalid attempt records for an event."""
+    log_info("Invalid attempts requested", {
+        "event_id": event_id,
+        "limit": limit
+    })
+    
+    try:
+        attempts = analytics_service.get_invalid_attempts(event_id, limit)
+        log_info("Invalid attempts retrieved", {
+            "event_id": event_id,
+            "attempt_count": len(attempts)
+        })
+        return {"event_id": event_id, "attempts": attempts, "count": len(attempts)}
+    except Exception as e:
+        log_error("Failed to retrieve invalid attempts", {
+            "event_id": event_id,
+            "error": str(e)
+        })
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve invalid attempts: {str(e)}")
 
 
 @app.on_event("startup")
