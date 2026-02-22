@@ -1,0 +1,24 @@
+# Security tool configuration
+
+# Bandit configuration
+bandit:
+  exclude_dirs:
+    - ".venv"
+    - "venv"
+    - "build"
+    - "dist"
+    - "tests"
+  tests: []
+  skips:
+    - "B101"  # Skip test assertions
+
+# Safety configuration
+safety:
+  ignore-cvss-severity-below: 0
+  ignore-cvss-unknown-severity: false
+  full-report: true
+
+# Dependency check configuration
+dependency-check:
+  fail-on-any-cve: true
+  suppression-file: "dependency-check-suppressions.xml"
