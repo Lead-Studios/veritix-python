@@ -2,7 +2,6 @@ import logging
 from typing import Dict, Any, List, Tuple
 from datetime import datetime, date
 
-import httpx
 from sqlalchemy import create_engine, Table, Column, MetaData, String, Integer, Numeric, Date, TIMESTAMP
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -11,52 +10,11 @@ try:
 except Exception:
     bigquery = None  # Optional dependency
 
-from src.logging_config import log_info, log_error, log_warning, ETL_JOBS_TOTAL
+from src.logging_config import log_info, log_error, ETL_JOBS_TOTAL
 from src.config import get_settings
+from .extract import extract_events_and_sales
 
 logger = logging.getLogger("veritix.etl")
-
-
-# -----------------------
-# Extract
-# -----------------------
-def _auth_headers() -> Dict[str, str]:
-    token = get_settings().NEST_API_TOKEN
-    headers = {"Accept": "application/json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
-
-
-def extract_events_and_sales() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    base_url = get_settings().NEST_API_BASE_URL
-    if not base_url:
-        log_warning("NEST_API_BASE_URL not set; returning empty extract")
-        return [], []
-    events_url = base_url.rstrip("/") + "/events"
-    sales_url = base_url.rstrip("/") + "/ticket-sales"
-    headers = _auth_headers()
-    try:
-        with httpx.Client(timeout=30) as client:
-            ev_resp = client.get(events_url, headers=headers)
-            ev_resp.raise_for_status()
-            events = ev_resp.json()
-            ts_resp = client.get(sales_url, headers=headers)
-            ts_resp.raise_for_status()
-            sales = ts_resp.json()
-            # Normalize to list
-            if isinstance(events, dict):
-                events = events.get("data", []) or []
-            if isinstance(sales, dict):
-                sales = sales.get("data", []) or []
-            log_info("ETL extract completed", {
-                "events_count": len(events),
-                "sales_count": len(sales)
-            })
-            return events, sales
-    except Exception as exc:
-        log_error("ETL extract failed", {"error": str(exc)})
-        return [], []
 
 
 # -----------------------
@@ -292,7 +250,10 @@ def load_bigquery(event_summary_rows: List[Dict[str, Any]], daily_rows: List[Dic
 def run_etl_once() -> None:
     log_info("ETL job started")
     events, sales = extract_events_and_sales()
-    ev_rows, daily_rows = transform_summary(events, sales)
+    ev_rows, daily_rows = transform_summary(
+        [event.raw for event in events],
+        [sale.raw for sale in sales],
+    )
     try:
         load_postgres(ev_rows, daily_rows)
     except Exception as exc:
