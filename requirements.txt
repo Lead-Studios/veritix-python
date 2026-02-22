@@ -24,4 +24,7 @@ nltk==3.8.1
 reportlab==4.0.7
 qrcode==7.4.2
 
+# Logging and Metrics
+prometheus-client==0.20.0
+
 

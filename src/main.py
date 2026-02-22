@@ -1,6 +1,6 @@
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 import os
 from pydantic import BaseModel, Field
@@ -25,6 +25,15 @@ from typing import Any
 from src.utils import compute_signature, train_logistic_regression_pipeline
 from src.etl import run_etl_once
 from src.chat import chat_manager, ChatMessage, EscalationEvent
+from src.logging_config import (
+    setup_logging, RequestIDMiddleware, MetricsMiddleware,
+    get_metrics, get_metrics_content_type,
+    REQUEST_COUNT, REQUEST_DURATION, REQUEST_IN_PROGRESS,
+    WEBSOCKET_CONNECTIONS, CHAT_MESSAGES_TOTAL, ETL_JOBS_TOTAL,
+    TICKET_SCANS_TOTAL, FRAUD_DETECTIONS_TOTAL,
+    QR_GENERATIONS_TOTAL, QR_VALIDATIONS_TOTAL,
+    log_info, log_error, log_warning
+)
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -34,7 +43,7 @@ except Exception:
     BackgroundScheduler = None
     CronTrigger = None
     IntervalTrigger = None
-from src.types import (
+from src.types_custom import (
     PredictRequest,
     PredictResponse,
     TicketRequest,
@@ -68,6 +77,13 @@ static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
 if os.path.exists(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
+# Add middleware
+app.add_middleware(RequestIDMiddleware)
+app.add_middleware(MetricsMiddleware)
+
+# Set up structured logging
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+setup_logging(LOG_LEVEL)
 logger = logging.getLogger("veritix")
 
 # Global model pipeline; created at startup
@@ -290,7 +306,10 @@ etl_scheduler: "BackgroundScheduler | None" = None
 # --- Fraud Detection Endpoint ---
 @app.post("/check-fraud", response_model=FraudCheckResponse)
 def check_fraud(payload: FraudCheckRequest):
+    log_info("Fraud check requested", {"event_count": len(payload.events)})
     triggered = check_fraud_rules(payload.events)
+    FRAUD_DETECTIONS_TOTAL.labels(rules_triggered=str(len(triggered))).inc()
+    log_info("Fraud check completed", {"triggered_rules": triggered})
     return FraudCheckResponse(triggered_rules=triggered)
 
 
@@ -371,6 +390,7 @@ def read_root():
 
 @app.get("/health", status_code=200)
 def health_check():
+    log_info("Health check requested")
     return JSONResponse(content={
         "status": "OK",
         "service": "Veritix Backend",
@@ -378,12 +398,25 @@ def health_check():
     })
 
 
+@app.get("/metrics", response_class=PlainTextResponse)
+async def metrics_endpoint():
+    """Prometheus metrics endpoint."""
+    log_info("Metrics endpoint requested")
+    return PlainTextResponse(
+        content=get_metrics(),
+        media_type=get_metrics_content_type()
+    )
+
+
 @app.post("/predict-scalper", response_model=PredictResponse)
 def predict_scalper(payload: PredictRequest):
+    log_info("Scalper prediction requested", {"feature_count": len(payload.features)})
     if model_pipeline is None:
+        log_error("Model not ready for prediction")
         return JSONResponse(status_code=503, content={"detail": "Model not ready"})
     features = np.array(payload.features, dtype=float).reshape(1, -1)
     proba = float(model_pipeline.predict_proba(features)[0, 1])
+    log_info("Scalper prediction completed", {"probability": proba})
     return PredictResponse(probability=proba)
 
 # If you run this file directly (e.g., in a local development environment outside Docker):
@@ -430,6 +463,11 @@ def recommend_events(payload: RecommendRequest):
 
 @app.post("/generate-qr", response_model=QRResponse)
 def generate_qr(payload: TicketRequest):
+    log_info("QR code generation requested", {
+        "ticket_id": payload.ticket_id,
+        "event": payload.event,
+        "user": payload.user
+    })
     # Encode ticket metadata as compact JSON
     unsigned = {
         "ticket_id": payload.ticket_id,
@@ -445,7 +483,7 @@ def generate_qr(payload: TicketRequest):
     except Exception as exc:
         # If qrcode isn't installed, return a helpful error (tests expecting QR generation
         # should install the dependency). The endpoint returns 500 to align with other errors.
-        logger.warning("QR generation skipped - missing dependency: %s", exc)
+        log_warning("QR generation skipped - missing dependency", {"error": str(exc)})
         return JSONResponse(status_code=500, content={"detail": "QR generation dependency missing"})
 
     qr = _qrcode.QRCode(error_correction=_qrcode.constants.ERROR_CORRECT_M, box_size=10, border=4)
@@ -457,11 +495,14 @@ def generate_qr(payload: TicketRequest):
     img.save(buffer, format="PNG")
     buffer.seek(0)
     encoded = base64.b64encode(buffer.read()).decode("utf-8")
+    QR_GENERATIONS_TOTAL.inc()
+    log_info("QR code generated successfully")
     return QRResponse(qr_base64=encoded)
 
 
 @app.post("/validate-qr", response_model=QRValidateResponse)
 def validate_qr(payload: QRValidateRequest):
+    log_info("QR validation requested")
     try:
         data = json.loads(payload.qr_text)
         if not isinstance(data, dict):
@@ -472,11 +513,15 @@ def validate_qr(payload: QRValidateRequest):
         unsigned = {k: v for k, v in data.items() if k != "sig"}
         expected_sig = compute_signature(unsigned)
         if hmac.compare_digest(provided_sig, expected_sig):
+            QR_VALIDATIONS_TOTAL.labels(result="valid").inc()
+            log_info("QR validation successful", {"ticket_id": unsigned.get("ticket_id")})
             return QRValidateResponse(isValid=True, metadata=unsigned)
-        logger.warning("Invalid QR signature", extra={"metadata": unsigned})
+        log_warning("Invalid QR signature", {"metadata": unsigned})
+        QR_VALIDATIONS_TOTAL.labels(result="invalid").inc()
         return QRValidateResponse(isValid=False)
     except Exception as exc:
-        logger.warning("Invalid QR validation attempt: %s", str(exc))
+        log_warning("Invalid QR validation attempt", {"error": str(exc)})
+        QR_VALIDATIONS_TOTAL.labels(result="error").inc()
         return QRValidateResponse(isValid=False)
 
 
@@ -532,7 +577,7 @@ def generate_daily_report(payload: DailyReportRequest):
         )
     
     except Exception as exc:
-        logger.error("Daily report generation failed: %s", exc)
+        log_error("Daily report generation failed", {"error": str(exc)})
         return JSONResponse(
             status_code=500,
             content={"detail": f"Report generation failed: {exc}"}

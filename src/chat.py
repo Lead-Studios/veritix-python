@@ -1,13 +1,11 @@
 """Chat service for real-time messaging between users and support."""
 import asyncio
 import json
-import logging
 from datetime import datetime
 from typing import Dict, List, Set, Optional, Any
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-
-logger = logging.getLogger("veritix.chat")
+from src.logging_config import log_info, log_error, log_warning, CHAT_MESSAGES_TOTAL
 
 
 class ChatMessage(BaseModel):
@@ -59,8 +57,11 @@ class ChatManager:
                 self.user_connections[user_id] = set()
             self.user_connections[user_id].add(conversation_id)
             
-        logger.info(f"User {user_id} connected to conversation {conversation_id}. "
-                   f"Active connections: {len(self.active_connections[conversation_id])}")
+        log_info("User connected to chat", {
+            "conversation_id": conversation_id,
+            "user_id": user_id,
+            "total_connections": len(self.active_connections[conversation_id])
+        })
         
     async def disconnect(self, websocket: WebSocket, conversation_id: str, user_id: str):
         """Disconnect a user from a conversation."""
@@ -78,7 +79,10 @@ class ChatManager:
                 if not self.user_connections[user_id]:
                     del self.user_connections[user_id]
                     
-        logger.info(f"User {user_id} disconnected from conversation {conversation_id}")
+        log_info("User disconnected from chat", {
+            "conversation_id": conversation_id,
+            "user_id": user_id
+        })
         
     async def send_message(self, message: ChatMessage) -> bool:
         """Send a message to all participants in a conversation."""
@@ -95,7 +99,10 @@ class ChatManager:
                 try:
                     await websocket.send_text(message.json())
                 except Exception as e:
-                    logger.warning(f"Failed to send message to websocket: {e}")
+                    log_warning("Failed to send message to websocket", {
+                        "conversation_id": message.conversation_id,
+                        "error": str(e)
+                    })
                     disconnected.append(websocket)
             
             # Clean up disconnected clients
@@ -146,7 +153,10 @@ class ChatManager:
                 try:
                     await websocket.send_text(json.dumps(escalation_notification))
                 except Exception as e:
-                    logger.warning(f"Failed to send escalation notification: {e}")
+                    log_warning("Failed to send escalation notification", {
+                        "conversation_id": conversation_id,
+                        "error": str(e)
+                    })
                     disconnected.append(websocket)
             
             # Clean up disconnected clients
@@ -156,7 +166,10 @@ class ChatManager:
                         if ws in self.active_connections[conversation_id]:
                             self.active_connections[conversation_id].remove(ws)
                             
-        logger.info(f"Conversation {conversation_id} escalated: {reason}")
+        log_info("Conversation escalated", {
+            "conversation_id": conversation_id,
+            "reason": reason
+        })
         return escalation
         
     def get_escalations(self, conversation_id: Optional[str] = None) -> List[EscalationEvent]:
