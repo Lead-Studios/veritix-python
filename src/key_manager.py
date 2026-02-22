@@ -4,7 +4,7 @@ from cryptography.hazmat.primitives.asymmetric import ed25519, rsa
 from cryptography.hazmat.primitives.serialization import load_pem_private_key, load_pem_public_key
 from cryptography.exceptions import UnsupportedAlgorithm
 from typing import Optional, Tuple
-from .config import settings
+from .config import get_settings
 import hashlib
 import logging
 
@@ -25,7 +25,7 @@ def _to_bytes(pem_str: str) -> bytes:
     return pem_str
 
 def load_private_key_from_env() -> Optional[serialization.PrivateFormat]:
-    pem = settings.PRIVATE_KEY_PEM
+    pem = get_settings().PRIVATE_KEY_PEM
     if not pem:
         logger.debug("No PRIVATE_KEY_PEM provided in environment.")
         return None
@@ -49,7 +49,7 @@ def load_private_key_from_env() -> Optional[serialization.PrivateFormat]:
         raise KeyLoadError("Invalid private key in environment") from e
 
 def load_public_key_from_env() -> Optional[serialization.PublicFormat]:
-    pem = settings.PUBLIC_KEY_PEM
+    pem = get_settings().PUBLIC_KEY_PEM
     if not pem:
         logger.debug("No PUBLIC_KEY_PEM provided in environment.")
         return None

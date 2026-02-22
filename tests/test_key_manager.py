@@ -36,8 +36,8 @@ def test_to_bytes_handles_str_and_bytes():
 
 def test_load_private_and_public_keys_from_env(monkeypatch):
     private_pem, public_pem = _generate_ed25519_pem_pair()
-    monkeypatch.setattr(key_manager.settings, "PRIVATE_KEY_PEM", private_pem, raising=False)
-    monkeypatch.setattr(key_manager.settings, "PUBLIC_KEY_PEM", public_pem, raising=False)
+    settings_stub = type("SettingsStub", (), {"PRIVATE_KEY_PEM": private_pem, "PUBLIC_KEY_PEM": public_pem})()
+    monkeypatch.setattr(key_manager, "get_settings", lambda: settings_stub)
 
     private_key = key_manager.load_private_key_from_env()
     public_key = key_manager.load_public_key_from_env()
@@ -47,22 +47,32 @@ def test_load_private_and_public_keys_from_env(monkeypatch):
 
 
 def test_load_keys_return_none_when_env_missing(monkeypatch):
-    monkeypatch.setattr(key_manager.settings, "PRIVATE_KEY_PEM", None, raising=False)
-    monkeypatch.setattr(key_manager.settings, "PUBLIC_KEY_PEM", None, raising=False)
+    settings_stub = type("SettingsStub", (), {"PRIVATE_KEY_PEM": None, "PUBLIC_KEY_PEM": None})()
+    monkeypatch.setattr(key_manager, "get_settings", lambda: settings_stub)
 
     assert key_manager.load_private_key_from_env() is None
     assert key_manager.load_public_key_from_env() is None
 
 
 def test_load_private_key_invalid_value_raises(monkeypatch):
-    monkeypatch.setattr(key_manager.settings, "PRIVATE_KEY_PEM", "not-a-valid-private-key", raising=False)
+    settings_stub = type(
+        "SettingsStub",
+        (),
+        {"PRIVATE_KEY_PEM": "not-a-valid-private-key", "PUBLIC_KEY_PEM": None},
+    )()
+    monkeypatch.setattr(key_manager, "get_settings", lambda: settings_stub)
 
     with pytest.raises(key_manager.KeyLoadError, match="Invalid private key"):
         key_manager.load_private_key_from_env()
 
 
 def test_load_public_key_invalid_value_raises(monkeypatch):
-    monkeypatch.setattr(key_manager.settings, "PUBLIC_KEY_PEM", "not-a-valid-public-key", raising=False)
+    settings_stub = type(
+        "SettingsStub",
+        (),
+        {"PRIVATE_KEY_PEM": None, "PUBLIC_KEY_PEM": "not-a-valid-public-key"},
+    )()
+    monkeypatch.setattr(key_manager, "get_settings", lambda: settings_stub)
 
     with pytest.raises(key_manager.KeyLoadError, match="Invalid public key"):
         key_manager.load_public_key_from_env()

@@ -1,4 +1,3 @@
-import os
 import logging
 from typing import Dict, Any, List, Tuple
 from datetime import datetime, date
@@ -12,14 +11,17 @@ try:
 except Exception:
     bigquery = None  # Optional dependency
 
-from src.logging_config import log_info, log_error, ETL_JOBS_TOTAL
+from src.logging_config import log_info, log_error, log_warning, ETL_JOBS_TOTAL
+from src.config import get_settings
+
+logger = logging.getLogger("veritix.etl")
 
 
 # -----------------------
 # Extract
 # -----------------------
 def _auth_headers() -> Dict[str, str]:
-    token = os.getenv("NEST_API_TOKEN")
+    token = get_settings().NEST_API_TOKEN
     headers = {"Accept": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -27,7 +29,7 @@ def _auth_headers() -> Dict[str, str]:
 
 
 def extract_events_and_sales() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    base_url = os.getenv("NEST_API_BASE_URL")
+    base_url = get_settings().NEST_API_BASE_URL
     if not base_url:
         log_warning("NEST_API_BASE_URL not set; returning empty extract")
         return [], []
@@ -134,9 +136,7 @@ def transform_summary(events: List[Dict[str, Any]], sales: List[Dict[str, Any]])
 # Load (Postgres)
 # -----------------------
 def _pg_engine():
-    url = os.getenv("DATABASE_URL")
-    if not url:
-        return None
+    url = get_settings().DATABASE_URL
     try:
         engine = create_engine(url, pool_pre_ping=True)
         return engine
@@ -207,15 +207,16 @@ def load_postgres(event_summary_rows: List[Dict[str, Any]], daily_rows: List[Dic
 # Load (BigQuery optional)
 # -----------------------
 def load_bigquery(event_summary_rows: List[Dict[str, Any]], daily_rows: List[Dict[str, Any]]) -> None:
-    if os.getenv("BQ_ENABLED", "false").lower() not in ("true", "1", "yes"):
+    settings = get_settings()
+    if not settings.BQ_ENABLED:
         return
     if bigquery is None:
         logger.warning("google-cloud-bigquery not available; skipping BigQuery load")
         return
-    project_id = os.getenv("BQ_PROJECT_ID")
-    dataset_id = os.getenv("BQ_DATASET", "veritix")
-    table_ev = os.getenv("BQ_TABLE_EVENT_SUMMARY", "event_sales_summary")
-    table_daily = os.getenv("BQ_TABLE_DAILY_SALES", "daily_ticket_sales")
+    project_id = settings.BQ_PROJECT_ID
+    dataset_id = settings.BQ_DATASET or "veritix"
+    table_ev = settings.BQ_TABLE_EVENT_SUMMARY
+    table_daily = settings.BQ_TABLE_DAILY_SALES
     if not project_id:
         logger.warning("BQ_PROJECT_ID not set; skipping BigQuery load")
         return
@@ -227,7 +228,7 @@ def load_bigquery(event_summary_rows: List[Dict[str, Any]], daily_rows: List[Dic
         dataset_ref = client.get_dataset(bigquery.DatasetReference(project_id, dataset_id))
     except NotFound:
         dataset = bigquery.Dataset(f"{project_id}.{dataset_id}")
-        dataset.location = os.getenv("BQ_LOCATION", "US")
+        dataset.location = settings.BQ_LOCATION or "US"
         dataset_ref = client.create_dataset(dataset, exists_ok=True)
 
     def _ensure_table(table_name: str, schema: List[bigquery.SchemaField]):
