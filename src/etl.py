@@ -12,7 +12,7 @@ try:
 except Exception:
     bigquery = None  # Optional dependency
 
-logger = logging.getLogger("veritix.etl")
+from src.logging_config import log_info, log_error, ETL_JOBS_TOTAL
 
 
 # -----------------------
@@ -29,7 +29,7 @@ def _auth_headers() -> Dict[str, str]:
 def extract_events_and_sales() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     base_url = os.getenv("NEST_API_BASE_URL")
     if not base_url:
-        logger.warning("NEST_API_BASE_URL not set; returning empty extract")
+        log_warning("NEST_API_BASE_URL not set; returning empty extract")
         return [], []
     events_url = base_url.rstrip("/") + "/events"
     sales_url = base_url.rstrip("/") + "/ticket-sales"
@@ -47,9 +47,13 @@ def extract_events_and_sales() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any
                 events = events.get("data", []) or []
             if isinstance(sales, dict):
                 sales = sales.get("data", []) or []
+            log_info("ETL extract completed", {
+                "events_count": len(events),
+                "sales_count": len(sales)
+            })
             return events, sales
     except Exception as exc:
-        logger.error("ETL extract failed: %s", exc)
+        log_error("ETL extract failed", {"error": str(exc)})
         return [], []
 
 
@@ -192,7 +196,11 @@ def load_postgres(event_summary_rows: List[Dict[str, Any]], daily_rows: List[Dic
                 },
             )
             conn.execute(stmt2)
-    logger.info("Loaded %d events and %d daily sales into Postgres", len(event_summary_rows), len(daily_rows))
+    log_info("ETL load completed", {
+        "database": "PostgreSQL",
+        "event_summary_count": len(event_summary_rows),
+        "daily_sales_count": len(daily_rows)
+    })
 
 
 # -----------------------
@@ -267,23 +275,29 @@ def load_bigquery(event_summary_rows: List[Dict[str, Any]], daily_rows: List[Dic
     errors1 = client.insert_rows_json(ev_table_id, ev_rows)
     errors2 = client.insert_rows_json(daily_table_id, daily_rows_json)
     if errors1:
-        logger.error("BigQuery load errors (event summary): %s", errors1)
+        log_error("BigQuery load errors (event summary)", {"errors": errors1})
     if errors2:
-        logger.error("BigQuery load errors (daily sales): %s", errors2)
-    logger.info("Loaded rows into BigQuery: ev=%d, daily=%d", len(ev_rows), len(daily_rows_json))
+        log_error("BigQuery load errors (daily sales)", {"errors": errors2})
+    log_info("ETL load completed", {
+        "database": "BigQuery",
+        "event_summary_count": len(ev_rows),
+        "daily_sales_count": len(daily_rows_json)
+    })
 
 
 # -----------------------
 # Orchestration
 # -----------------------
 def run_etl_once() -> None:
+    log_info("ETL job started")
     events, sales = extract_events_and_sales()
     ev_rows, daily_rows = transform_summary(events, sales)
     try:
         load_postgres(ev_rows, daily_rows)
     except Exception as exc:
-        logger.error("Postgres load failed: %s", exc)
+        log_error("Postgres load failed", {"error": str(exc)})
     try:
         load_bigquery(ev_rows, daily_rows)
     except Exception as exc:
-        logger.error("BigQuery load failed: %s", exc)
+        log_error("BigQuery load failed", {"error": str(exc)})
+    log_info("ETL job completed")
