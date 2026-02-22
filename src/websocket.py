@@ -1,5 +1,6 @@
 # app/main.py
 import logging
+import os
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, APIRouter
 from fastapi.responses import JSONResponse
 from app.manager import TicketScanManager, logger as manager_logger
@@ -17,7 +18,10 @@ manager_logger.setLevel(logging.INFO)
 
 app = FastAPI(title="Ticket Scans WebSocket Service")
 router = APIRouter()
-manager = TicketScanManager()
+
+# Get session timeout from environment variable, default to 30 minutes
+SESSION_TIMEOUT_MINUTES = int(os.getenv("SESSION_TIMEOUT_MINUTES", "30"))
+manager = TicketScanManager(session_timeout_minutes=SESSION_TIMEOUT_MINUTES)
 
 @router.websocket("/ws/ticket-scans")
 async def websocket_ticket_scans(ws: WebSocket):
@@ -58,5 +62,17 @@ async def post_scan(scan: TicketScan):
     await manager.broadcast_scan(payload)
     logger.info("Received scan for ticket_id=%s event_id=%s", scan.ticket_id, scan.event_id)
     return {"ok": True}
+
+@app.on_event("startup")
+async def startup_event():
+    await manager.start_cleanup_task()
+    logger.info("WebSocket service started with %d minute session timeout", SESSION_TIMEOUT_MINUTES)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await manager.stop_cleanup_task()
+    logger.info("WebSocket service shutdown completed")
+
 
 app.include_router(router)
