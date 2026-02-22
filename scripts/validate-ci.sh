@@ -42,7 +42,7 @@ else
     export SKIP_MODEL_TRAINING=true
 fi
 
-pytest --cov=src --cov-report=term-missing --cov-fail-under=70 || echo "   ❌ Tests failed or coverage below 70%"
+pytest --cov=src --cov-report=term-missing --cov-fail-under=80 || echo "   ❌ Tests failed or coverage below 80%"
 
 # Check 4: Docker build
 echo "🐳 Testing Docker build..."
