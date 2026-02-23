@@ -22,7 +22,11 @@ import hmac
 import logging
 from typing import Any
 
-from src.utils import compute_signature, train_logistic_regression_pipeline
+from src.utils import (
+    compute_signature,
+    train_logistic_regression_pipeline,
+    validate_qr_signing_key_from_env,
+)
 from src.etl import run_etl_once
 from src.chat import chat_manager, ChatMessage, EscalationEvent
 from src.logging_config import (
@@ -474,6 +478,9 @@ def get_invalid_attempts(event_id: str, limit: int = 50):
 @app.on_event("startup")
 def on_startup() -> None:
     global model_pipeline
+    key_length = validate_qr_signing_key_from_env()
+    log_info("QR signing key loaded", {"key_length": key_length})
+
     # Allow test environments to skip expensive model training / ML imports
     skip_training = os.getenv("SKIP_MODEL_TRAINING", "false").lower() in ("1", "true", "yes")
     if not skip_training:

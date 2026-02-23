@@ -1,14 +1,11 @@
-import os
-import hmac
 import hashlib
+import hmac
 import json
-from typing import Dict, Any
-
-from typing import Tuple
 import os
-import hmac
-import hashlib
-from typing import Dict, Any
+from typing import Any, Dict, Tuple
+
+
+MIN_QR_SIGNING_KEY_LENGTH = 32
 
 def _lazy_import_ml():
     # Local import to avoid importing heavy ML packages at module import time
@@ -73,8 +70,25 @@ def train_logistic_regression_pipeline() -> "Pipeline":
     return pipeline
 
 
+def validate_qr_signing_key_from_env() -> int:
+    key = os.getenv("QR_SIGNING_KEY")
+    if key is None or not key.strip():
+        raise RuntimeError(
+            "QR_SIGNING_KEY must be explicitly set at startup and be at least "
+            f"{MIN_QR_SIGNING_KEY_LENGTH} characters long."
+        )
+    if len(key) < MIN_QR_SIGNING_KEY_LENGTH:
+        raise RuntimeError(
+            "QR_SIGNING_KEY is too short. Minimum length is "
+            f"{MIN_QR_SIGNING_KEY_LENGTH} characters."
+        )
+    return len(key)
+
+
 def get_signing_key() -> bytes:
-    key = os.getenv("QR_SIGNING_KEY", "test_signing_key")
+    validate_qr_signing_key_from_env()
+    key = os.getenv("QR_SIGNING_KEY")
+    assert key is not None
     return key.encode("utf-8")
 
 
