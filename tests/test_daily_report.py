@@ -161,8 +161,11 @@ def test_endpoint_invalid_date_format():
         "target_date": "invalid-date"
     })
     
-    assert response.status_code == 400
-    assert "Invalid date format" in response.json()["detail"]
+    assert response.status_code == 422
+    body = response.json()
+    assert body["success"] is False
+    assert body["error"] == "Validation error"
+    assert body["status_code"] == 422
 
 
 def test_endpoint_invalid_output_format():
@@ -171,8 +174,11 @@ def test_endpoint_invalid_output_format():
         "output_format": "xml"
     })
     
-    assert response.status_code == 400
-    assert "Invalid output_format" in response.json()["detail"]
+    assert response.status_code == 422
+    body = response.json()
+    assert body["success"] is False
+    assert body["error"] == "Validation error"
+    assert body["status_code"] == 422
 
 
 def test_endpoint_database_error():

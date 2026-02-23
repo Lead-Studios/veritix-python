@@ -1,11 +1,13 @@
 # app/main.py
 import os
+import logging
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, APIRouter
 from fastapi.responses import JSONResponse
 from src.manager import TicketScanManager
 from src.schemas import TicketScan
 from datetime import datetime
 from src.logging_config import setup_logging, log_info, log_error, WEBSOCKET_CONNECTIONS
+from pydantic import BaseModel, ConfigDict
 
 # Set up structured logging
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
@@ -14,6 +16,11 @@ logger = logging.getLogger("ticket_scans.app")
 
 app = FastAPI(title="Ticket Scans WebSocket Service")
 router = APIRouter()
+
+
+class ScanPostResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
 
 # Get session timeout from environment variable, default to 30 minutes
 SESSION_TIMEOUT_MINUTES = int(os.getenv("SESSION_TIMEOUT_MINUTES", "30"))
@@ -48,7 +55,7 @@ async def websocket_ticket_scans(ws: WebSocket):
         WEBSOCKET_CONNECTIONS.dec()
         log_info("WebSocket connection closed")
 
-@router.post("/scans", response_class=JSONResponse)
+@router.post("/scans", response_model=ScanPostResponse, response_class=JSONResponse)
 async def post_scan(scan: TicketScan):
     """
     POST endpoint to accept a scan and broadcast it to clients.
@@ -69,7 +76,7 @@ async def post_scan(scan: TicketScan):
         "ticket_id": scan.ticket_id,
         "event_id": scan.event_id
     })
-    return {"ok": True}
+    return ScanPostResponse(ok=True)
 
 @app.on_event("startup")
 async def startup_event():

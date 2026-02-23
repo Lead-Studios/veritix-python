@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from typing import Dict
+from pydantic import BaseModel, ConfigDict
 
 app = FastAPI()
 
@@ -11,6 +12,17 @@ ALGORITHM = "HS256"
 
 # Create a reusable security scheme
 security = HTTPBearer()
+
+
+class ChatResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    chat_id: str
+    message: str
+
+
+class LoginResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    access_token: str
 
 
 # Token verification function
@@ -45,12 +57,12 @@ async def auth_middleware(request: Request, call_next):
 
 
 # Example: Protected Route
-@app.get("/user/chat/{chat_id}")
+@app.get("/user/chat/{chat_id}", response_model=ChatResponse)
 async def get_chat(chat_id: str, user: Dict = Depends(verify_token)):
     user_id = user.get("sub")  # typically the user_id
     if not chat_belongs_to_user(chat_id, user_id):
         raise HTTPException(status_code=403, detail="Access denied to this chat session")
-    return {"chat_id": chat_id, "message": "Chat retrieved successfully"}
+    return ChatResponse(chat_id=chat_id, message="Chat retrieved successfully")
 
 
 def chat_belongs_to_user(chat_id: str, user_id: str) -> bool:
@@ -59,9 +71,9 @@ def chat_belongs_to_user(chat_id: str, user_id: str) -> bool:
     return chat_id.startswith(user_id)
 
 
-@app.post("/login")
+@app.post("/login", response_model=LoginResponse)
 async def login():
     """Mock login to generate token"""
     user_data = {"sub": "user123"}
     token = jwt.encode(user_data, SECRET_KEY, algorithm=ALGORITHM)
-    return {"access_token": token}
+    return LoginResponse(access_token=token)
