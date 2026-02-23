@@ -1,5 +1,5 @@
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 import os
@@ -66,6 +66,7 @@ from src.fraud import check_fraud_rules
 from src.mock_events import get_mock_events
 from src.search_utils import extract_keywords, filter_events_by_keywords
 from src.report_service import generate_daily_report_csv
+from src.exceptions import register_exception_handlers
 from datetime import date, datetime
 import uuid
 
@@ -75,6 +76,7 @@ app = FastAPI(
     version="0.1.0",
     description="A microservice backend for the Veritix platform."
 )
+register_exception_handlers(app)
 
 # Serve static files
 static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
@@ -781,4 +783,3 @@ def on_shutdown() -> None:
             etl_scheduler.shutdown(wait=False)
         except Exception:
             pass
-
