@@ -1,0 +1,66 @@
+"""initial_schema
+
+Revision ID: 0001_initial_schema
+Revises: 
+Create Date: 2026-02-24 10:00:00.000000
+
+"""
+from typing import Sequence, Union
+from alembic import op
+import sqlalchemy as sa
+
+# revision identifiers, used by Alembic.
+revision: str = '0001_initial_schema'
+down_revision: Union[str, None] = None
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+def upgrade() -> None:
+    # 1. ETL Run Log
+    op.create_table(
+        'etl_run_log',
+        sa.Column('id', sa.Integer(), primary_key=True, autoincrement=True),
+        sa.Column('status', sa.String(length=50), nullable=False),
+        sa.Column('records_processed', sa.Integer(), nullable=True, server_default='0'),
+        sa.Column('error_message', sa.Text(), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    )
+
+    # 2. Event Sales Summary
+    op.create_table(
+        'event_sales_summary',
+        sa.Column('id', sa.Integer(), primary_key=True, autoincrement=True),
+        sa.Column('event_id', sa.String(length=100), nullable=False, unique=True),
+        sa.Column('total_tickets_sold', sa.Integer(), nullable=False, server_default='0'),
+        sa.Column('revenue_xlm', sa.Numeric(10, 2), nullable=False, server_default='0.00'),
+        sa.Column('revenue_usd', sa.Numeric(10, 2), nullable=False, server_default='0.00'),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), onupdate=sa.text('now()'), nullable=True),
+    )
+
+    # 3. Daily Ticket Sales
+    op.create_table(
+        'daily_ticket_sales',
+        sa.Column('id', sa.Integer(), primary_key=True, autoincrement=True),
+        sa.Column('date', sa.Date(), nullable=False),
+        sa.Column('tickets_sold', sa.Integer(), nullable=False, server_default='0'),
+        sa.Column('revenue_usd', sa.Numeric(10, 2), nullable=False, server_default='0.00'),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    )
+
+    # 4. QR Scan Log
+    op.create_table(
+        'qr_scan_log',
+        sa.Column('id', sa.Integer(), primary_key=True, autoincrement=True),
+        sa.Column('ticket_id', sa.String(length=100), nullable=False),
+        sa.Column('device_id', sa.String(length=100), nullable=True),
+        sa.Column('status', sa.String(length=50), nullable=False),
+        sa.Column('scanned_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    )
+
+def downgrade() -> None:
+    # Drop in reverse order of creation
+    op.drop_table('qr_scan_log')
+    op.drop_table('daily_ticket_sales')
+    op.drop_table('event_sales_summary')
+    op.drop_table('etl_run_log')
