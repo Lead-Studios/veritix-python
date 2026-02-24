@@ -61,6 +61,7 @@ from src.types_custom import (
 from src.revenue_sharing_service import revenue_sharing_service
 from src.revenue_sharing_models import EventRevenueInput, RevenueCalculationResult, RevenueShareConfig
 from src.analytics.service import analytics_service
+from src.config import get_settings
 from typing import List
 from src.fraud import check_fraud_rules
 from src.mock_events import get_mock_events
@@ -86,7 +87,7 @@ app.add_middleware(RequestIDMiddleware)
 app.add_middleware(MetricsMiddleware)
 
 # Set up structured logging
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LOG_LEVEL = get_settings().LOG_LEVEL
 setup_logging(LOG_LEVEL)
 logger = logging.getLogger("veritix")
 
@@ -472,20 +473,21 @@ def get_invalid_attempts(event_id: str, limit: int = 50):
 @app.on_event("startup")
 def on_startup() -> None:
     global model_pipeline
+    settings = get_settings()
     # Allow test environments to skip expensive model training / ML imports
-    skip_training = os.getenv("SKIP_MODEL_TRAINING", "false").lower() in ("1", "true", "yes")
+    skip_training = settings.SKIP_MODEL_TRAINING
     if not skip_training:
         model_pipeline = train_logistic_regression_pipeline()
     # Optionally start ETL scheduler
-    enable_sched = os.getenv("ENABLE_ETL_SCHEDULER", "false").lower() in ("true", "1", "yes")
+    enable_sched = settings.ENABLE_ETL_SCHEDULER
     if enable_sched and BackgroundScheduler:
         global etl_scheduler
         etl_scheduler = BackgroundScheduler(timezone="UTC")
-        cron = os.getenv("ETL_CRON")
+        cron = settings.ETL_CRON
         if cron and CronTrigger:
             trigger = CronTrigger.from_crontab(cron)
         else:
-            minutes = int(os.getenv("ETL_INTERVAL_MINUTES", "15"))
+            minutes = settings.ETL_INTERVAL_MINUTES
             trigger = IntervalTrigger(minutes=minutes)
         etl_scheduler.add_job(run_etl_once, trigger=trigger, id="etl_job", replace_existing=True)
         etl_scheduler.start()
@@ -781,4 +783,3 @@ def on_shutdown() -> None:
             etl_scheduler.shutdown(wait=False)
         except Exception:
             pass
-

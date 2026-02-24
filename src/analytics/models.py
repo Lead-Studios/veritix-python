@@ -3,7 +3,8 @@ from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
-import os
+
+from src.config import get_settings
 
 
 Base = declarative_base()
@@ -96,12 +97,8 @@ class AnalyticsStats(Base):
 
 
 def get_database_url():
-    """Get database URL from environment or default to SQLite."""
-    db_url = os.getenv("DATABASE_URL")
-    if not db_url:
-        # Default to SQLite for development/testing
-        db_url = "sqlite:///analytics.db"
-    return db_url
+    """Get database URL from centralized settings."""
+    return get_settings().DATABASE_URL
 
 
 def get_engine():

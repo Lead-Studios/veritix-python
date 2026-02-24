@@ -1,4 +1,3 @@
-import os
 import csv
 import json
 import logging
@@ -7,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from sqlalchemy import create_engine, text
+from src.config import get_settings
 
 logger = logging.getLogger("veritix.report_service")
 
@@ -14,9 +14,7 @@ REPORTS_DIR = Path("reports")
 
 
 def _pg_engine():
-    url = os.getenv("DATABASE_URL")
-    if not url:
-        return None
+    url = get_settings().DATABASE_URL
     try:
         engine = create_engine(url, pool_pre_ping=True)
         return engine

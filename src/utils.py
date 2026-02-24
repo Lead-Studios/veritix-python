@@ -1,14 +1,10 @@
-import os
 import hmac
 import hashlib
 import json
 from typing import Dict, Any
-
 from typing import Tuple
-import os
-import hmac
-import hashlib
-from typing import Dict, Any
+
+from src.config import get_settings
 
 def _lazy_import_ml():
     # Local import to avoid importing heavy ML packages at module import time
@@ -74,7 +70,7 @@ def train_logistic_regression_pipeline() -> "Pipeline":
 
 
 def get_signing_key() -> bytes:
-    key = os.getenv("QR_SIGNING_KEY", "test_signing_key")
+    key = get_settings().QR_SIGNING_KEY
     return key.encode("utf-8")
 
 

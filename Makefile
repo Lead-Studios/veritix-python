@@ -31,7 +31,7 @@ lint:
 # Run tests
 test:
 	@echo "Running tests with coverage..."
-	SKIP_MODEL_TRAINING=true pytest --cov=src --cov-report=term-missing --cov-fail-under=70
+	SKIP_MODEL_TRAINING=true pytest --cov=src --cov-report=term-missing --cov-fail-under=80
 
 # Security scanning
 security:
