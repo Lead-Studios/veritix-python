@@ -1,3 +1,4 @@
+import hmac
 import hashlib
 import hmac
 import json
@@ -6,6 +7,10 @@ from typing import Any, Dict, Tuple
 
 
 MIN_QR_SIGNING_KEY_LENGTH = 32
+from typing import Dict, Any
+from typing import Tuple
+
+from src.config import get_settings
 
 def _lazy_import_ml():
     # Local import to avoid importing heavy ML packages at module import time
@@ -89,6 +94,7 @@ def get_signing_key() -> bytes:
     validate_qr_signing_key_from_env()
     key = os.getenv("QR_SIGNING_KEY")
     assert key is not None
+    key = get_settings().QR_SIGNING_KEY
     return key.encode("utf-8")
 
 

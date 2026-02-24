@@ -1,5 +1,4 @@
 # app/main.py
-import os
 import logging
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, APIRouter
 from fastapi.responses import JSONResponse
@@ -7,10 +6,10 @@ from src.manager import TicketScanManager
 from src.schemas import TicketScan
 from datetime import datetime
 from src.logging_config import setup_logging, log_info, log_error, WEBSOCKET_CONNECTIONS
-from pydantic import BaseModel, ConfigDict
+from src.config import get_settings
 
 # Set up structured logging
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LOG_LEVEL = get_settings().LOG_LEVEL
 setup_logging(LOG_LEVEL)
 logger = logging.getLogger("ticket_scans.app")
 
@@ -23,7 +22,7 @@ class ScanPostResponse(BaseModel):
     ok: bool
 
 # Get session timeout from environment variable, default to 30 minutes
-SESSION_TIMEOUT_MINUTES = int(os.getenv("SESSION_TIMEOUT_MINUTES", "30"))
+SESSION_TIMEOUT_MINUTES = get_settings().SESSION_TIMEOUT_MINUTES
 manager = TicketScanManager(session_timeout_minutes=SESSION_TIMEOUT_MINUTES)
 
 @router.websocket("/ws/ticket-scans")

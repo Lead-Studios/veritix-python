@@ -3,6 +3,7 @@ uvicorn[standard]==0.30.6
 numpy==1.26.4
 scikit-learn==1.5.2
 pydantic==2.8.2
+pydantic-settings==2.4.0
 httpx==0.28.1
 pytest==8.4.2
 pytest-cov
@@ -26,5 +27,4 @@ qrcode==7.4.2
 
 # Logging and Metrics
 prometheus-client==0.20.0
-
 
