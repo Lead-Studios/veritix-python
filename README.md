@@ -23,7 +23,7 @@ curl http://localhost:8000/health
 
 ### Environment Variables
 
-- `QR_SIGNING_KEY`: Secret used to sign and validate QR payloads. Defaults to `test_signing_key` in development.
+- `QR_SIGNING_KEY`: Secret used to sign and validate QR payloads. Required at startup with minimum length of 32 characters.
 
 ### ETL Pipeline
 
@@ -75,5 +75,4 @@ python -m pytest --cov=src --cov-report=term-missing
 ```
 
 The GitHub Actions workflow is configured to fail if overall coverage falls below 70%.
-
 

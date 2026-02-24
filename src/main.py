@@ -1,16 +1,15 @@
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 import os
-from pydantic import BaseModel, Field
-from typing import List
+from typing import Annotated, List
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
-from typing import Dict, List
+from typing import Dict
 
 import os
 from fastapi import FastAPI
@@ -22,7 +21,11 @@ import hmac
 import logging
 from typing import Any
 
-from src.utils import compute_signature, train_logistic_regression_pipeline
+from src.utils import (
+    compute_signature,
+    train_logistic_regression_pipeline,
+    validate_qr_signing_key_from_env,
+)
 from src.etl import run_etl_once
 from src.chat import chat_manager, ChatMessage, EscalationEvent
 from src.logging_config import (
@@ -46,6 +49,8 @@ except Exception:
 from src.types_custom import (
     PredictRequest,
     PredictResponse,
+    RecommendRequest,
+    RecommendResponse,
     TicketRequest,
     QRResponse,
     QRValidateRequest,
@@ -56,7 +61,22 @@ from src.types_custom import (
     SearchEventsResponse,
     EventResult,
     DailyReportRequest,
-    DailyReportResponse
+    DailyReportResponse,
+    ChatMessageSendRequest,
+    ChatMessageSendResponse,
+    ChatMessageHistoryQuery,
+    ChatMessageHistoryResponse,
+    ChatEscalateRequest,
+    ChatEscalateResponse,
+    ChatEscalationsResponse,
+    ChatUserConversationsResponse,
+    AnalyticsStatsQuery,
+    AnalyticsListQuery,
+    AnalyticsScansResponse,
+    AnalyticsTransfersResponse,
+    AnalyticsInvalidAttemptsResponse,
+    RootResponse,
+    HealthResponse,
 )
 from src.revenue_sharing_service import revenue_sharing_service
 from src.revenue_sharing_models import EventRevenueInput, RevenueCalculationResult, RevenueShareConfig
@@ -67,6 +87,7 @@ from src.fraud import check_fraud_rules
 from src.mock_events import get_mock_events
 from src.search_utils import extract_keywords, filter_events_by_keywords
 from src.report_service import generate_daily_report_csv
+from src.exceptions import register_exception_handlers
 from datetime import date, datetime
 import uuid
 
@@ -76,6 +97,7 @@ app = FastAPI(
     version="0.1.0",
     description="A microservice backend for the Veritix platform."
 )
+register_exception_handlers(app)
 
 # Serve static files
 static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
@@ -136,96 +158,106 @@ async def websocket_chat(websocket: WebSocket, conversation_id: str, user_id: st
         await chat_manager.disconnect(websocket, conversation_id, user_id)
 
 
-@app.post("/chat/{conversation_id}/messages")
-async def send_message(conversation_id: str, message: dict):
+@app.post("/chat/{conversation_id}/messages", response_model=ChatMessageSendResponse)
+async def send_message(conversation_id: str, message: ChatMessageSendRequest):
     """Send a message to a conversation (HTTP endpoint)."""
     try:
         chat_message = ChatMessage(
             id=str(uuid.uuid4()),
-            sender_id=message["sender_id"],
-            sender_type=message["sender_type"],
-            content=message["content"],
+            sender_id=message.sender_id,
+            sender_type=message.sender_type,
+            content=message.content,
             timestamp=datetime.utcnow(),
             conversation_id=conversation_id,
-            metadata=message.get("metadata", {})
+            metadata=message.metadata
         )
         
         success = await chat_manager.send_message(chat_message)
         if success:
-            return {"status": "success", "message_id": chat_message.id}
-        else:
-            return {"status": "error", "message": "Failed to send message"}, 500
-            
+            return ChatMessageSendResponse(status="success", message_id=chat_message.id)
+        raise HTTPException(status_code=500, detail="Failed to send message")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error sending message: {e}")
-        return {"status": "error", "message": str(e)}, 500
+        raise HTTPException(status_code=500, detail="Failed to send message")
 
 
-@app.get("/chat/{conversation_id}/history")
-async def get_message_history(conversation_id: str, limit: int = 50):
+@app.get("/chat/{conversation_id}/history", response_model=ChatMessageHistoryResponse)
+async def get_message_history(
+    conversation_id: str, query: Annotated[ChatMessageHistoryQuery, Query()]
+):
     """Get message history for a conversation."""
     try:
-        messages = chat_manager.get_message_history(conversation_id, limit)
-        return {
-            "conversation_id": conversation_id,
-            "messages": [msg.dict() for msg in messages],
-            "count": len(messages)
-        }
+        messages = chat_manager.get_message_history(conversation_id, query.limit)
+        return ChatMessageHistoryResponse(
+            conversation_id=conversation_id,
+            messages=[msg.model_dump() for msg in messages],
+            count=len(messages),
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting message history: {e}")
-        return {"status": "error", "message": str(e)}, 500
+        raise HTTPException(status_code=500, detail="Failed to get message history")
 
 
-@app.post("/chat/{conversation_id}/escalate")
-async def escalate_conversation(conversation_id: str, escalation: dict):
+@app.post("/chat/{conversation_id}/escalate", response_model=ChatEscalateResponse)
+async def escalate_conversation(conversation_id: str, escalation: ChatEscalateRequest):
     """Escalate a conversation to human support."""
     try:
-        reason = escalation.get("reason", "user_request")
-        metadata = escalation.get("metadata", {})
+        reason = escalation.reason
+        metadata = escalation.metadata
         
         escalation_event = await chat_manager.escalate_conversation(
             conversation_id, reason, metadata
         )
         
-        return {
-            "status": "success",
-            "escalation_id": escalation_event.id,
-            "reason": escalation_event.reason,
-            "timestamp": escalation_event.timestamp.isoformat()
-        }
+        return ChatEscalateResponse(
+            status="success",
+            escalation_id=escalation_event.id,
+            reason=escalation_event.reason,
+            timestamp=escalation_event.timestamp.isoformat(),
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error escalating conversation: {e}")
-        return {"status": "error", "message": str(e)}, 500
+        raise HTTPException(status_code=500, detail="Failed to escalate conversation")
 
 
-@app.get("/chat/{conversation_id}/escalations")
+@app.get("/chat/{conversation_id}/escalations", response_model=ChatEscalationsResponse)
 async def get_escalations(conversation_id: str):
     """Get escalation events for a conversation."""
     try:
         escalations = chat_manager.get_escalations(conversation_id)
-        return {
-            "conversation_id": conversation_id,
-            "escalations": [esc.dict() for esc in escalations],
-            "count": len(escalations)
-        }
+        return ChatEscalationsResponse(
+            conversation_id=conversation_id,
+            escalations=[esc.model_dump() for esc in escalations],
+            count=len(escalations),
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting escalations: {e}")
-        return {"status": "error", "message": str(e)}, 500
+        raise HTTPException(status_code=500, detail="Failed to get escalations")
 
 
-@app.get("/chat/user/{user_id}/conversations")
+@app.get("/chat/user/{user_id}/conversations", response_model=ChatUserConversationsResponse)
 async def get_user_conversations(user_id: str):
     """Get all conversations for a user."""
     try:
         conversation_ids = chat_manager.get_user_conversations(user_id)
-        return {
-            "user_id": user_id,
-            "conversations": conversation_ids,
-            "count": len(conversation_ids)
-        }
+        return ChatUserConversationsResponse(
+            user_id=user_id,
+            conversations=conversation_ids,
+            count=len(conversation_ids),
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting user conversations: {e}")
-        return {"status": "error", "message": str(e)}, 500
+        raise HTTPException(status_code=500, detail="Failed to get user conversations")
 
 mock_user_events: Dict[str, list[str]] = {
     "user1": ["concert_A", "concert_B"],
@@ -233,26 +265,6 @@ mock_user_events: Dict[str, list[str]] = {
     "user3": ["concert_A", "concert_C", "concert_D"],
     "user4": ["concert_D", "concert_E"],
 }
-
-class PredictRequest(BaseModel):
-    """Request body for /predict-scalper endpoint.
-
-    Each record represents aggregated event signals for a buyer/session.
-    """
-    features: List[float] = Field(
-        ..., description="Feature vector: e.g., [tickets_per_txn, txns_per_min, avg_price_ratio, account_age_days, zip_mismatch, device_changes]"
-    )
-
-
-class PredictResponse(BaseModel):
-    probability: float
-
-class RecommendRequest(BaseModel):  
-    user_id: str  
-
-
-class RecommendResponse(BaseModel):  
-    recommendations: List[str]
 
 def generate_synthetic_event_data(num_samples: int = 2000, random_seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
     """Generate synthetic data for scalper detection.
@@ -368,9 +380,10 @@ def search_events(payload: SearchEventsRequest):
         )
 
 
-@app.get("/stats")
-def get_analytics_stats(event_id: str = None):
+@app.get("/stats", response_model=Dict[str, Any] | List[Dict[str, Any]])
+def get_analytics_stats(query: Annotated[AnalyticsStatsQuery, Query()]):
     """Get analytics statistics for ticket scans, transfers, and invalid attempts per event."""
+    event_id = query.event_id
     log_info("Analytics stats requested", {
         "event_id": event_id
     })
@@ -401,9 +414,11 @@ def get_analytics_stats(event_id: str = None):
         raise HTTPException(status_code=500, detail=f"Failed to retrieve analytics stats: {str(e)}")
 
 
-@app.get("/stats/scans")
-def get_recent_scans(event_id: str, limit: int = 50):
+@app.get("/stats/scans", response_model=AnalyticsScansResponse)
+def get_recent_scans(query: Annotated[AnalyticsListQuery, Query()]):
     """Get recent scan records for an event."""
+    event_id = query.event_id
+    limit = query.limit
     log_info("Recent scans requested", {
         "event_id": event_id,
         "limit": limit
@@ -415,7 +430,7 @@ def get_recent_scans(event_id: str, limit: int = 50):
             "event_id": event_id,
             "scan_count": len(scans)
         })
-        return {"event_id": event_id, "scans": scans, "count": len(scans)}
+        return AnalyticsScansResponse(event_id=event_id, scans=scans, count=len(scans))
     except Exception as e:
         log_error("Failed to retrieve recent scans", {
             "event_id": event_id,
@@ -424,9 +439,11 @@ def get_recent_scans(event_id: str, limit: int = 50):
         raise HTTPException(status_code=500, detail=f"Failed to retrieve recent scans: {str(e)}")
 
 
-@app.get("/stats/transfers")
-def get_recent_transfers(event_id: str, limit: int = 50):
+@app.get("/stats/transfers", response_model=AnalyticsTransfersResponse)
+def get_recent_transfers(query: Annotated[AnalyticsListQuery, Query()]):
     """Get recent transfer records for an event."""
+    event_id = query.event_id
+    limit = query.limit
     log_info("Recent transfers requested", {
         "event_id": event_id,
         "limit": limit
@@ -438,7 +455,7 @@ def get_recent_transfers(event_id: str, limit: int = 50):
             "event_id": event_id,
             "transfer_count": len(transfers)
         })
-        return {"event_id": event_id, "transfers": transfers, "count": len(transfers)}
+        return AnalyticsTransfersResponse(event_id=event_id, transfers=transfers, count=len(transfers))
     except Exception as e:
         log_error("Failed to retrieve recent transfers", {
             "event_id": event_id,
@@ -447,9 +464,11 @@ def get_recent_transfers(event_id: str, limit: int = 50):
         raise HTTPException(status_code=500, detail=f"Failed to retrieve recent transfers: {str(e)}")
 
 
-@app.get("/stats/invalid-attempts")
-def get_invalid_attempts(event_id: str, limit: int = 50):
+@app.get("/stats/invalid-attempts", response_model=AnalyticsInvalidAttemptsResponse)
+def get_invalid_attempts(query: Annotated[AnalyticsListQuery, Query()]):
     """Get recent invalid attempt records for an event."""
+    event_id = query.event_id
+    limit = query.limit
     log_info("Invalid attempts requested", {
         "event_id": event_id,
         "limit": limit
@@ -461,7 +480,7 @@ def get_invalid_attempts(event_id: str, limit: int = 50):
             "event_id": event_id,
             "attempt_count": len(attempts)
         })
-        return {"event_id": event_id, "attempts": attempts, "count": len(attempts)}
+        return AnalyticsInvalidAttemptsResponse(event_id=event_id, attempts=attempts, count=len(attempts))
     except Exception as e:
         log_error("Failed to retrieve invalid attempts", {
             "event_id": event_id,
@@ -492,21 +511,17 @@ def on_startup() -> None:
         etl_scheduler.add_job(run_etl_once, trigger=trigger, id="etl_job", replace_existing=True)
         etl_scheduler.start()
 
-@app.get("/")
+@app.get("/", response_model=RootResponse)
 def read_root():
-    return {"message": "Veritix Service is running. Check /health for status."}
+    return RootResponse(message="Veritix Service is running. Check /health for status.")
 
-@app.get("/health", status_code=200)
+@app.get("/health", status_code=200, response_model=HealthResponse)
 def health_check():
     log_info("Health check requested")
-    return JSONResponse(content={
-        "status": "OK",
-        "service": "Veritix Backend",
-        "api_version": app.version
-    })
+    return HealthResponse(status="OK", service="Veritix Backend", api_version=app.version)
 
 
-@app.get("/metrics", response_class=PlainTextResponse)
+@app.get("/metrics", response_class=PlainTextResponse, response_model=str)
 async def metrics_endpoint():
     """Prometheus metrics endpoint."""
     log_info("Metrics endpoint requested")
@@ -553,20 +568,6 @@ def recommend_events(payload: RecommendRequest):
 
     recommended = sorted(scores, key=scores.get, reverse=True)[:3]  
     return RecommendResponse(recommendations=recommended)  
-
-    global model_pipeline
-    try:
-        if model_pipeline is None:
-            # Lazy-initialize the model to ensure availability in test environments
-            model_pipeline = train_logistic_regression_pipeline()
-        # import numpy locally to avoid importing it at module import time
-        import numpy as np
-        features = np.array(payload.features, dtype=float).reshape(1, -1)
-        proba = float(model_pipeline.predict_proba(features)[0, 1])
-        return PredictResponse(probability=proba)
-    except Exception as exc:
-        # Return 500 on errors (e.g., invalid feature length) to align with tests
-        return JSONResponse(status_code=500, content={"detail": f"Prediction failed: {exc}"})
 
 
 @app.post("/generate-qr", response_model=QRResponse)
@@ -636,25 +637,7 @@ def validate_qr(payload: QRValidateRequest):
 @app.post("/generate-daily-report", response_model=DailyReportResponse)
 def generate_daily_report(payload: DailyReportRequest):
     try:
-        # Parse target_date
-        target_date = None
-        if payload.target_date:
-            try:
-                target_date = date.fromisoformat(payload.target_date)
-            except ValueError:
-                return JSONResponse(
-                    status_code=400,
-                    content={"detail": "Invalid date format. Use YYYY-MM-DD."}
-                )
-        else:
-            target_date = date.today()
-        
-        # Validate output format
-        if payload.output_format not in ["csv", "json"]:
-            return JSONResponse(
-                status_code=400,
-                content={"detail": "Invalid output_format. Use 'csv' or 'json'."}
-            )
+        target_date = payload.target_date or date.today()
         
         # Generate report
         report_path = generate_daily_report_csv(

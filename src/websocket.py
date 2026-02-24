@@ -16,6 +16,11 @@ logger = logging.getLogger("ticket_scans.app")
 app = FastAPI(title="Ticket Scans WebSocket Service")
 router = APIRouter()
 
+
+class ScanPostResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+
 # Get session timeout from environment variable, default to 30 minutes
 SESSION_TIMEOUT_MINUTES = get_settings().SESSION_TIMEOUT_MINUTES
 manager = TicketScanManager(session_timeout_minutes=SESSION_TIMEOUT_MINUTES)
@@ -49,7 +54,7 @@ async def websocket_ticket_scans(ws: WebSocket):
         WEBSOCKET_CONNECTIONS.dec()
         log_info("WebSocket connection closed")
 
-@router.post("/scans", response_class=JSONResponse)
+@router.post("/scans", response_model=ScanPostResponse, response_class=JSONResponse)
 async def post_scan(scan: TicketScan):
     """
     POST endpoint to accept a scan and broadcast it to clients.
@@ -70,7 +75,7 @@ async def post_scan(scan: TicketScan):
         "ticket_id": scan.ticket_id,
         "event_id": scan.event_id
     })
-    return {"ok": True}
+    return ScanPostResponse(ok=True)
 
 @app.on_event("startup")
 async def startup_event():
