@@ -4,6 +4,10 @@ from typing import Optional
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from pydantic_settings import BaseSettings
+
+class Settings(BaseSettings):
+   
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -29,6 +33,15 @@ class Settings(BaseSettings):
     SKIP_MODEL_TRAINING: bool = False
     BQ_TABLE_EVENT_SUMMARY: str = "event_sales_summary"
     BQ_TABLE_DAILY_SALES: str = "daily_ticket_sales"
+
+   
+    SERVICE_API_KEY: str = "default_service_secret_change_me"
+    ADMIN_API_KEY: str = "default_admin_secret_change_me"
+
+    class Config:
+        env_file = ".env"
+
+settings = Settings()
 
 
 @lru_cache

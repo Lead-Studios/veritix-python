@@ -766,3 +766,29 @@ def on_shutdown() -> None:
             etl_scheduler.shutdown(wait=False)
         except Exception:
             pass
+
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
+from src.core.ratelimit import limiter
+
+# ... existing app initialization ...
+
+# 1. Register the limiter to the FastAPI app state
+app.state.limiter = limiter
+
+# 2. Add the Custom Exception Handler
+@app.exception_handler(RateLimitExceeded)
+async def custom_rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    # SlowAPI's exception doesn't expose exact retry_after easily on the exc object,
+    # but we can provide a clean fallback based on the limit window.
+    return JSONResponse(
+        status_code=429,
+        content={
+            "success": False, 
+            "error": "Rate limit exceeded. Try again in 60s."
+        }
+    )
+
+# ... include your routers ...
