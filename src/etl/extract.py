@@ -47,7 +47,7 @@ def _to_float(value: Any, default: float = 0.0) -> float:
 
 def _auth_headers() -> Dict[str, str]:
     token = get_settings().NEST_API_TOKEN
-    headers = {"Accept": "application/json"}
+    headers: Dict[str, str] = {"Accept": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     return headers
@@ -77,7 +77,9 @@ def _next_page(payload: Any, current_page: int) -> Optional[int]:
         if pagination.get("nextPage") is not None:
             return _to_int(pagination.get("nextPage"), current_page + 1)
         page = _to_int(pagination.get("page"), current_page)
-        total_pages = _to_int(pagination.get("total_pages") or pagination.get("totalPages"), 0)
+        total_pages = _to_int(
+            pagination.get("total_pages") or pagination.get("totalPages"), 0
+        )
         if total_pages and page < total_pages:
             return page + 1
         if pagination.get("has_more") is True or pagination.get("hasMore") is True:
@@ -104,7 +106,7 @@ def _request_with_retry(
         try:
             response = client.get(url, headers=headers, params=params)
             try:
-                payload = response.json() if response.content else []
+                payload: Any = response.json() if response.content else []
             except ValueError:
                 payload = []
             record_count = len(_normalize_items(payload))
@@ -150,21 +152,28 @@ def _to_event_record(item: Dict[str, Any]) -> EventRecord:
 
 def _to_ticket_sale_record(item: Dict[str, Any]) -> TicketSaleRecord:
     quantity = _to_int(item.get("quantity") or item.get("qty") or 1, 1)
-    price = _to_float(item.get("price") or item.get("unit_price") or item.get("amount") or 0)
+    price = _to_float(
+        item.get("price") or item.get("unit_price") or item.get("amount") or 0
+    )
     total_amount = _to_float(item.get("total_amount"), quantity * price)
-    sale_date = item.get("sale_date") or item.get("created_at") or item.get("timestamp")
-    event_id = str(item.get("event_id") or item.get("eventId") or item.get("event") or "")
+    sale_date_raw = (
+        item.get("sale_date") or item.get("created_at") or item.get("timestamp")
+    )
+    event_id = str(
+        item.get("event_id") or item.get("eventId") or item.get("event") or ""
+    )
     return TicketSaleRecord(
         event_id=event_id,
         quantity=quantity,
         price=price,
         total_amount=total_amount,
-        sale_date=(str(sale_date) if sale_date is not None else None),
+        sale_date=(str(sale_date_raw) if sale_date_raw is not None else None),
         raw=item,
     )
 
 
 def extract_events_and_sales() -> Tuple[List[EventRecord], List[TicketSaleRecord]]:
+    """Fetch all events (paginated) and all ticket-sales from the upstream API."""
     settings = get_settings()
     base_url = settings.NEST_API_BASE_URL.rstrip("/")
     headers = _auth_headers()
@@ -180,13 +189,13 @@ def extract_events_and_sales() -> Tuple[List[EventRecord], List[TicketSaleRecord
                 dataset="events",
                 params={"page": page},
             )
-            payload = response.json()
+            payload: Any = response.json()
             items = _normalize_items(payload)
             events.extend(_to_event_record(item) for item in items)
-            next_page = _next_page(payload, page)
-            if not next_page:
+            next_p = _next_page(payload, page)
+            if not next_p:
                 break
-            page = next_page
+            page = next_p
 
         sales_response = _request_with_retry(
             client=client,
@@ -194,15 +203,12 @@ def extract_events_and_sales() -> Tuple[List[EventRecord], List[TicketSaleRecord
             headers=headers,
             dataset="ticket-sales",
         )
-        sales_payload = sales_response.json()
+        sales_payload: Any = sales_response.json()
         sales_items = _normalize_items(sales_payload)
         sales = [_to_ticket_sale_record(item) for item in sales_items]
 
     log_info(
         "ETL extract completed",
-        {
-            "events_count": len(events),
-            "sales_count": len(sales),
-        },
+        {"events_count": len(events), "sales_count": len(sales)},
     )
     return events, sales

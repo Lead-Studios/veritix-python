@@ -1,13 +1,18 @@
 """Revenue sharing service for calculating organizer revenue shares based on ticket sales and smart contract rules."""
-from typing import List, Dict, Optional, Tuple
-from decimal import Decimal, ROUND_HALF_UP
-from datetime import datetime
 import logging
+from datetime import datetime
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Dict, List, Optional, Tuple
+
+from src.logging_config import log_error, log_info
 from src.revenue_sharing_models import (
-    Stakeholder, RevenueRule, EventRevenueInput, PayoutDistribution, 
-    RevenueCalculationResult, RevenueShareConfig
+    EventRevenueInput,
+    PayoutDistribution,
+    RevenueCalculationResult,
+    RevenueRule,
+    RevenueShareConfig,
+    Stakeholder,
 )
-from src.logging_config import log_info, log_error
 
 
 class RevenueSharingService:

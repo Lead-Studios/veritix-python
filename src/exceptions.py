@@ -1,10 +1,9 @@
 import os
 from typing import Any
 
-from fastapi import HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from fastapi import FastAPI
 
 
 def _debug_enabled() -> bool:
@@ -58,7 +57,7 @@ async def handle_validation_exception(_: Request, exc: RequestValidationError) -
 
 
 async def handle_unhandled_exception(_: Request, exc: Exception) -> JSONResponse:
-    detail = str(exc) if _debug_enabled() else None
+    detail: str | None = str(exc) if _debug_enabled() else None
     return JSONResponse(
         status_code=500,
         content={
@@ -70,6 +69,6 @@ async def handle_unhandled_exception(_: Request, exc: Exception) -> JSONResponse
 
 
 def register_exception_handlers(app: FastAPI) -> None:
-    app.add_exception_handler(HTTPException, handle_http_exception)
-    app.add_exception_handler(RequestValidationError, handle_validation_exception)
-    app.add_exception_handler(Exception, handle_unhandled_exception)
+    app.add_exception_handler(HTTPException, handle_http_exception)  # type: ignore[arg-type]
+    app.add_exception_handler(RequestValidationError, handle_validation_exception)  # type: ignore[arg-type]
+    app.add_exception_handler(Exception, handle_unhandled_exception)  # type: ignore[arg-type]

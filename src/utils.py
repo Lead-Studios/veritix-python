@@ -1,36 +1,41 @@
-import hmac
 import hashlib
 import hmac
 import json
 import os
 from typing import Any, Dict, Tuple
 
-
-MIN_QR_SIGNING_KEY_LENGTH = 32
-from typing import Dict, Any
-from typing import Tuple
-
 from src.config import get_settings
 
-def _lazy_import_ml():
-    # Local import to avoid importing heavy ML packages at module import time
-    import numpy as np
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.model_selection import train_test_split
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.pipeline import Pipeline
+MIN_QR_SIGNING_KEY_LENGTH = 32
+
+
+def _lazy_import_ml() -> Tuple[Any, Any, Any, Any, Any]:
+    """Lazily import heavy ML packages to avoid slow startup in test mode.
+
+    Returns (numpy, LogisticRegression, train_test_split, StandardScaler, Pipeline).
+
+    NOTE: Return type is Tuple[Any, ...] because numpy/sklearn have no bundled
+    stubs and the types are only available at runtime.
+    """
+    import numpy as np  # type: ignore[import-untyped]
+    from sklearn.linear_model import LogisticRegression  # type: ignore[import-untyped]
+    from sklearn.model_selection import train_test_split  # type: ignore[import-untyped]
+    from sklearn.pipeline import Pipeline  # type: ignore[import-untyped]
+    from sklearn.preprocessing import StandardScaler  # type: ignore[import-untyped]
+
     return np, LogisticRegression, train_test_split, StandardScaler, Pipeline
 
-def generate_synthetic_event_data(num_samples: int = 2000, random_seed: int = 42) -> Tuple["np.ndarray", "np.ndarray"]:
+
+def generate_synthetic_event_data(
+    num_samples: int = 2000,
+    random_seed: int = 42,
+) -> Tuple[Any, Any]:
     """Generate synthetic data for scalper detection.
 
-    Features (example semantics):
-    0: tickets_per_txn (0-12)
-    1: txns_per_min (0-10)
-    2: avg_price_ratio (0.5-2.0)
-    3: account_age_days (0-3650)
-    4: zip_mismatch (0 or 1)
-    5: device_changes (0-6)
+    Returns (X, y) as numpy arrays.
+
+    NOTE: Return type uses Any because numpy ndarray stubs are not available
+    without numpy type stubs package.
     """
     np, _, _, _, _ = _lazy_import_ml()
     rng = np.random.default_rng(random_seed)
@@ -51,7 +56,6 @@ def generate_synthetic_event_data(num_samples: int = 2000, random_seed: int = 42
         device_changes,
     ])
 
-    # True underlying weights to simulate scalper probability
     weights = np.array([0.35, 0.45, 0.25, -0.002, 0.4, 0.3])
     bias = -2.0
     logits = X @ weights + bias
@@ -60,8 +64,13 @@ def generate_synthetic_event_data(num_samples: int = 2000, random_seed: int = 42
     return X.astype(float), y.astype(int)
 
 
-def train_logistic_regression_pipeline() -> "Pipeline":
-    """Train a simple standardize+logistic-regression pipeline on synthetic data."""
+def train_logistic_regression_pipeline() -> Any:
+    """Train a standardize+logistic-regression pipeline on synthetic data.
+
+    Returns a fitted sklearn Pipeline.
+
+    NOTE: Return type is Any because sklearn Pipeline has no bundled stubs.
+    """
     np, LogisticRegression, train_test_split, StandardScaler, Pipeline = _lazy_import_ml()
     X, y = generate_synthetic_event_data()
     X_train, _, y_train, _ = train_test_split(X, y, test_size=0.2, random_state=123)
@@ -76,6 +85,10 @@ def train_logistic_regression_pipeline() -> "Pipeline":
 
 
 def validate_qr_signing_key_from_env() -> int:
+    """Validate that QR_SIGNING_KEY meets minimum length requirements.
+
+    Returns the key length on success; raises RuntimeError otherwise.
+    """
     key = os.getenv("QR_SIGNING_KEY")
     if key is None or not key.strip():
         raise RuntimeError(
@@ -91,14 +104,14 @@ def validate_qr_signing_key_from_env() -> int:
 
 
 def get_signing_key() -> bytes:
+    """Return the QR signing key as UTF-8 bytes."""
     validate_qr_signing_key_from_env()
-    key = os.getenv("QR_SIGNING_KEY")
-    assert key is not None
     key = get_settings().QR_SIGNING_KEY
     return key.encode("utf-8")
 
 
 def compute_signature(data: Dict[str, Any]) -> str:
+    """Compute an HMAC-SHA256 hex digest for the given data dict."""
     canonical = json.dumps(data, separators=(",", ":"), sort_keys=True).encode("utf-8")
     digest = hmac.new(get_signing_key(), canonical, hashlib.sha256).hexdigest()
     return digest
