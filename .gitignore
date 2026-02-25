@@ -12,7 +12,6 @@ venv/
 .vscode/
 .idea/
 .qoder/
-.github/
 
 # OS
 .DS_Store

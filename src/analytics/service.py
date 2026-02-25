@@ -1,15 +1,20 @@
 """Analytics service for tracking ticket scans, transfers, and invalid attempts."""
-from sqlalchemy.orm import Session
-from sqlalchemy import func, desc, asc
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
 import json
 import logging
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import asc, desc, func
+from sqlalchemy.orm import Session
+
 from src.analytics.models import (
-    TicketScan, TicketTransfer, InvalidAttempt, AnalyticsStats, 
-    get_session
+    AnalyticsStats,
+    InvalidAttempt,
+    TicketScan,
+    TicketTransfer,
+    get_session,
 )
-from src.logging_config import log_info, log_error
+from src.logging_config import log_error, log_info
 
 
 class AnalyticsService:

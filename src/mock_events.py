@@ -1,35 +1,35 @@
 """Mock events data for search functionality."""
 from datetime import datetime, timedelta
+from typing import Any, Dict, List
 
-def get_mock_events():
-    """
-    Returns a list of mock events with various attributes for search testing.
-    
+
+def get_mock_events() -> List[Dict[str, Any]]:
+    """Return a list of mock events with various attributes for search testing.
+
     Each event contains:
     - id: Unique identifier
     - name: Event name
     - description: Event description
     - event_type: Category (music, sports, tech, conference, etc.)
     - location: City/venue
-    - date: Event date
+    - date: Event date (ISO 8601 string)
     - price: Ticket price
     - capacity: Venue capacity
     """
     today = datetime.now()
-    
-    # Calculate dates for "this weekend" and various other dates
+
     days_until_saturday = (5 - today.weekday()) % 7
     if days_until_saturday == 0 and today.weekday() == 5:
-        days_until_saturday = 0  # It's Saturday
+        days_until_saturday = 0
     elif days_until_saturday == 0:
-        days_until_saturday = 7  # Next Saturday
-    
+        days_until_saturday = 7
+
     this_saturday = today + timedelta(days=days_until_saturday)
     this_sunday = this_saturday + timedelta(days=1)
     next_week = today + timedelta(days=7)
     next_month = today + timedelta(days=30)
-    
-    mock_events = [
+
+    mock_events: List[Dict[str, Any]] = [
         # Music events in Lagos
         {
             "id": "evt_001",
@@ -39,7 +39,7 @@ def get_mock_events():
             "location": "Lagos",
             "date": this_saturday.isoformat(),
             "price": 5000.0,
-            "capacity": 500
+            "capacity": 500,
         },
         {
             "id": "evt_002",
@@ -49,7 +49,7 @@ def get_mock_events():
             "location": "Lagos",
             "date": this_sunday.isoformat(),
             "price": 8000.0,
-            "capacity": 1000
+            "capacity": 1000,
         },
         {
             "id": "evt_003",
@@ -59,9 +59,8 @@ def get_mock_events():
             "location": "Lagos",
             "date": next_week.isoformat(),
             "price": 6000.0,
-            "capacity": 800
+            "capacity": 800,
         },
-        
         # Music events in other locations
         {
             "id": "evt_004",
@@ -71,7 +70,7 @@ def get_mock_events():
             "location": "Abuja",
             "date": this_saturday.isoformat(),
             "price": 7000.0,
-            "capacity": 1500
+            "capacity": 1500,
         },
         {
             "id": "evt_005",
@@ -81,9 +80,8 @@ def get_mock_events():
             "location": "Port Harcourt",
             "date": next_month.isoformat(),
             "price": 4000.0,
-            "capacity": 300
+            "capacity": 300,
         },
-        
         # Sports events
         {
             "id": "evt_006",
@@ -93,7 +91,7 @@ def get_mock_events():
             "location": "Lagos",
             "date": this_sunday.isoformat(),
             "price": 2000.0,
-            "capacity": 5000
+            "capacity": 5000,
         },
         {
             "id": "evt_007",
@@ -103,7 +101,7 @@ def get_mock_events():
             "location": "Lagos",
             "date": this_saturday.isoformat(),
             "price": 3000.0,
-            "capacity": 2000
+            "capacity": 2000,
         },
         {
             "id": "evt_008",
@@ -113,9 +111,8 @@ def get_mock_events():
             "location": "Abuja",
             "date": next_week.isoformat(),
             "price": 1500.0,
-            "capacity": 1000
+            "capacity": 1000,
         },
-        
         # Tech/Conference events
         {
             "id": "evt_009",
@@ -125,7 +122,7 @@ def get_mock_events():
             "location": "Lagos",
             "date": next_week.isoformat(),
             "price": 15000.0,
-            "capacity": 500
+            "capacity": 500,
         },
         {
             "id": "evt_010",
@@ -135,7 +132,7 @@ def get_mock_events():
             "location": "Lagos",
             "date": this_saturday.isoformat(),
             "price": 5000.0,
-            "capacity": 200
+            "capacity": 200,
         },
         {
             "id": "evt_011",
@@ -145,9 +142,8 @@ def get_mock_events():
             "location": "Abuja",
             "date": next_month.isoformat(),
             "price": 20000.0,
-            "capacity": 300
+            "capacity": 300,
         },
-        
         # Art & Culture events
         {
             "id": "evt_012",
@@ -157,7 +153,7 @@ def get_mock_events():
             "location": "Lagos",
             "date": this_sunday.isoformat(),
             "price": 2500.0,
-            "capacity": 150
+            "capacity": 150,
         },
         {
             "id": "evt_013",
@@ -167,9 +163,8 @@ def get_mock_events():
             "location": "Lagos",
             "date": next_week.isoformat(),
             "price": 3000.0,
-            "capacity": 400
+            "capacity": 400,
         },
-        
         # Food & Entertainment
         {
             "id": "evt_014",
@@ -179,7 +174,7 @@ def get_mock_events():
             "location": "Lagos",
             "date": this_saturday.isoformat(),
             "price": 4000.0,
-            "capacity": 600
+            "capacity": 600,
         },
         {
             "id": "evt_015",
@@ -189,8 +184,8 @@ def get_mock_events():
             "location": "Lagos",
             "date": this_sunday.isoformat(),
             "price": 3500.0,
-            "capacity": 300
-        }
+            "capacity": 300,
+        },
     ]
-    
+
     return mock_events

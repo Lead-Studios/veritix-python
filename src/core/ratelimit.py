@@ -1,12 +1,12 @@
 import os
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
-# Disable rate limiting during normal tests to prevent test flakiness, 
-# unless we explicitly want to test the rate limiter.
-is_testing = os.getenv("TESTING", "False").lower() == "true"
+from slowapi import Limiter  # type: ignore[import-untyped]
+from slowapi.util import get_remote_address  # type: ignore[import-untyped]
 
-limiter = Limiter(
+# Disable rate limiting during tests to prevent flakiness unless explicitly enabled.
+is_testing: bool = os.getenv("TESTING", "False").lower() == "true"
+
+limiter: Limiter = Limiter(
     key_func=get_remote_address,
-    enabled=not is_testing
+    enabled=not is_testing,
 )

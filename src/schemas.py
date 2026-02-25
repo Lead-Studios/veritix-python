@@ -1,8 +1,8 @@
 # app/schemas.py
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
-from datetime import datetime
 
 
 class TicketScan(BaseModel):

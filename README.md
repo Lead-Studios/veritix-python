@@ -1,31 +1,98 @@
 ## Veritix Python Service
 
-### Run with Docker
+---
+
+## Local Development
+
+### Prerequisites
+
+- Python 3.11+
+- [Docker & Docker Compose](https://docs.docker.com/get-docker/) (for container targets)
+- [Alembic](https://alembic.sqlalchemy.org/) (installed via `requirements.txt`)
+
+### Quick start
+
+```bash
+git clone <repo-url>
+cd veritix-python
+make dev-setup       # copies .env.example → .env, creates .venv, installs deps
+source .venv/bin/activate
+make run             # starts the API at http://localhost:8000
+```
+
+`make dev-setup` is **idempotent** — running it a second time will not overwrite
+your `.env` or recreate the virtualenv if they already exist.
+
+---
+
+### All make targets
+
+| Target             | What it does                                                                                        |
+| ------------------ | --------------------------------------------------------------------------------------------------- |
+| `make dev-setup`   | Copy `.env.example` → `.env` (skipped if `.env` exists), create `.venv`, install `requirements.txt` |
+| `make run`         | Start the app with `uvicorn src.main:app --reload`                                                  |
+| `make format`      | Auto-format all code with **black** and **isort**                                                   |
+| `make lint-check`  | Check formatting without modifying files — exits non-zero if changes are needed (used in CI)        |
+| `make lint`        | Run black, isort, and flake8 checks                                                                 |
+| `make test`        | Run pytest with coverage (requires ≥ 80 % overall)                                                  |
+| `make test-docker` | Run tests inside Docker with a live Postgres container                                              |
+| `make security`    | Run `safety` and `bandit` security scans                                                            |
+| `make docker`      | Build the Docker image and smoke-test it                                                            |
+| `make docker-up`   | `docker compose up -d` — start the full stack in the background                                     |
+| `make docker-down` | `docker compose down` — stop and remove containers                                                  |
+| `make migrate`     | Apply all pending database migrations (`alembic upgrade head`)                                      |
+| `make validate`    | Run the full CI validation script (`scripts/validate-ci.sh`)                                        |
+| `make clean`       | Remove `__pycache__`, `.pytest_cache`, coverage files, and local Docker images                      |
+
+---
+
+### Environment variables
+
+Copy `.env.example` to `.env` (done automatically by `make dev-setup`) and fill in the values:
+
+| Variable                  | Required | Description                                                                            |
+| ------------------------- | -------- | -------------------------------------------------------------------------------------- |
+| `QR_SIGNING_KEY`          | ✅       | Secret used to sign QR payloads. Minimum 32 characters.                                |
+| `DATABASE_URL`            | ✅       | Postgres connection string, e.g. `postgresql://veritix:veritix@localhost:5432/veritix` |
+| `NEST_API_BASE_URL`       | ✅       | Base URL of the NestJS API                                                             |
+| `NEST_API_TOKEN`          |          | Optional bearer token for the NestJS API                                               |
+| `SESSION_TIMEOUT_MINUTES` |          | WebSocket session timeout in minutes (default `30`)                                    |
+| `ENABLE_ETL_SCHEDULER`    |          | Set `true` to run the ETL on a schedule                                                |
+| `ETL_CRON`                |          | Cron expression (UTC) — takes precedence over `ETL_INTERVAL_MINUTES`                   |
+| `ETL_INTERVAL_MINUTES`    |          | ETL polling interval in minutes (default `15`)                                         |
+| `BQ_ENABLED`              |          | Set `true` to enable BigQuery loading                                                  |
+| `BQ_PROJECT_ID`           |          | GCP project ID                                                                         |
+| `BQ_DATASET`              |          | BigQuery dataset name                                                                  |
+| `BQ_LOCATION`             |          | BigQuery dataset location (e.g. `US`)                                                  |
+
+---
+
+## Run with Docker
 
 Prerequisites: Docker and Docker Compose installed.
 
-1) Build the image:
 ```bash
-docker compose build
+# Build and start the stack (app + Postgres)
+make docker-up
+
+# Tail logs
+docker compose logs -f
+
+# Tear down
+make docker-down
 ```
 
-2) Start the stack (app + Postgres):
-```bash
-docker compose up -d
-```
-
-The API will be available at `http://localhost:8000`. The service runs with `uvicorn src.main:app --host 0.0.0.0 --port 8000`.
+The API will be available at `http://localhost:8000`.
 
 Health check:
+
 ```bash
 curl http://localhost:8000/health
 ```
 
-### Environment Variables
+---
 
-- `QR_SIGNING_KEY`: Secret used to sign and validate QR payloads. Required at startup with minimum length of 32 characters.
-
-### ETL Pipeline
+## ETL Pipeline
 
 This service includes a simple ETL that pulls ticketing data from a NestJS API and loads summary tables into Postgres (and optionally BigQuery).
 
@@ -35,44 +102,39 @@ This service includes a simple ETL that pulls ticketing data from a NestJS API a
   - `daily_ticket_sales` (event/day breakdown)
 - Loads into Postgres automatically if `DATABASE_URL` is set. BigQuery load is optional.
 
-#### Configure
-
-Copy `.env.example` to `.env` and set:
-
-- `DATABASE_URL`: Postgres connection string.
-- `NEST_API_BASE_URL`: Base URL of the NestJS API (e.g., `https://nest.example.com/api`).
-- `NEST_API_TOKEN`: Optional bearer token.
-- `ENABLE_ETL_SCHEDULER`: Set to `true` to enable periodic ETL.
-- `ETL_CRON`: Optional cron expression (UTC). If not set, uses `ETL_INTERVAL_MINUTES`.
-- `ETL_INTERVAL_MINUTES`: Interval for ETL run (default 15).
-- BigQuery (optional): `BQ_ENABLED`, `BQ_PROJECT_ID`, `BQ_DATASET`, `BQ_LOCATION`.
-
-#### Run
-
-- Docker: `docker compose up -d` will start app and Postgres. Set env vars in compose or `.env`.
-- Local: `python run.py` starts the API; scheduler runs if enabled.
-
 Tables are created automatically on first load.
 
-### Stop and Clean Up
+---
+
+## Running Tests
+
 ```bash
-docker compose down
+# Unit + integration tests with coverage
+make test
+
+# Tests against a live Postgres container
+make test-docker
 ```
 
-## Running tests
+The CI pipeline enforces a minimum of 80 % code coverage.
 
-Install test dependencies (preferably inside a virtualenv):
+---
 
-```powershell
-python -m pip install --upgrade pip
-pip install -r requirements.txt
+## Database Migrations
+
+```bash
+# Apply all pending migrations
+make migrate
+
+# (Equivalent to)
+alembic upgrade head
 ```
 
-Run the test suite with coverage:
+---
 
-```powershell
-python -m pytest --cov=src --cov-report=term-missing
+## Stop and Clean Up
+
+```bash
+make docker-down   # stop containers
+make clean         # remove caches and build artefacts
 ```
-
-The GitHub Actions workflow is configured to fail if overall coverage falls below 70%.
-
