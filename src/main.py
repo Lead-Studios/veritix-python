@@ -44,6 +44,7 @@ from src.report_service import (
     _query_daily_sales,
     _query_invalid_scans,
     _query_transfer_stats,
+    create_generated_reports_table,
     generate_daily_report_csv,
 )
 from src.revenue_sharing_models import (
@@ -163,6 +164,7 @@ async def custom_rate_limit_exceeded_handler(
 def on_startup() -> None:
     global model_pipeline, etl_scheduler
     settings = get_settings()
+    create_generated_reports_table()
     if not settings.SKIP_MODEL_TRAINING:
         model_pipeline = train_logistic_regression_pipeline()
 
@@ -504,9 +506,13 @@ def get_example_revenue_input() -> EventRevenueInput:
 def generate_daily_report(payload: DailyReportRequest) -> Any:
     try:
         target_date: date = payload.target_date or date.today()
-        report_path = generate_daily_report_csv(
+        settings = get_settings()
+        report_path, cache_hit = generate_daily_report_csv(
             target_date=target_date,
             output_format=payload.output_format,
+            event_id=payload.event_id,
+            force_regenerate=payload.force_regenerate,
+            cache_minutes=settings.REPORT_CACHE_MINUTES,
         )
         sales_data = _query_daily_sales(target_date)
         transfer_stats = _query_transfer_stats(target_date)
@@ -515,6 +521,7 @@ def generate_daily_report(payload: DailyReportRequest) -> Any:
         total_sales: int = sum(row["tickets_sold"] for row in sales_data)
         total_revenue: float = sum(row["revenue"] for row in sales_data)
 
+        msg = "Report served from cache" if cache_hit else f"Report generated successfully at {report_path}"
         return DailyReportResponse(
             success=True,
             report_path=report_path,
@@ -525,7 +532,8 @@ def generate_daily_report(payload: DailyReportRequest) -> Any:
                 "total_transfers": transfer_stats.get("total_transfers", 0),
                 "invalid_scans": invalid_scan_stats.get("invalid_scans", 0),
             },
-            message=f"Report generated successfully at {report_path}",
+            cache_hit=cache_hit,
+            message=msg,
         )
     except Exception as exc:
         log_error("Daily report generation failed", {"error": str(exc)})

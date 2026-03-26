@@ -164,7 +164,7 @@ class TestReportServiceModule(unittest.TestCase):
                     with patch("src.report_service._query_event_names", return_value={"E1": "Show"}):
                         with patch("src.report_service._query_transfer_stats", return_value={"total_transfers": 1}):
                             with patch("src.report_service._query_invalid_scans", return_value={"invalid_scans": 0}):
-                                path = generate_daily_report_csv(target_date=date(2025, 10, 4), output_format="json")
+                                path, _ = generate_daily_report_csv(target_date=date(2025, 10, 4), output_format="json")
             with open(path, "r", encoding="utf-8") as handle:
                 data = json.load(handle)
             self.assertEqual(data["summary"]["total_sales"], 5)

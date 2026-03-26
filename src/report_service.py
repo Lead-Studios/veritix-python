@@ -3,7 +3,7 @@ import json
 import logging
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
 
@@ -12,6 +12,106 @@ import src.db as _db
 logger = logging.getLogger("veritix.report_service")
 
 REPORTS_DIR = Path("reports")
+
+
+# ---------------------------------------------------------------------------
+# generated_reports table helpers
+# ---------------------------------------------------------------------------
+
+def create_generated_reports_table() -> None:
+    """Create the generated_reports table if it does not yet exist."""
+    engine = _pg_engine()
+    if engine is None:
+        logger.info("Skipping generated_reports table creation — no DB engine")
+        return
+    with engine.connect() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS generated_reports (
+                id SERIAL PRIMARY KEY,
+                filename TEXT NOT NULL,
+                report_date DATE NOT NULL,
+                event_id TEXT,
+                format TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                generated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        """))
+        conn.commit()
+    logger.info("generated_reports table ready")
+
+
+def insert_report_metadata(
+    filename: str,
+    report_date: date,
+    event_id: Optional[str],
+    fmt: str,
+    size_bytes: int,
+    generated_at: datetime,
+) -> None:
+    """Insert a row into generated_reports after a file is written."""
+    engine = _pg_engine()
+    if engine is None:
+        return
+    with engine.connect() as conn:
+        conn.execute(
+            text("""
+                INSERT INTO generated_reports
+                    (filename, report_date, event_id, format, size_bytes, generated_at)
+                VALUES
+                    (:filename, :report_date, :event_id, :format, :size_bytes, :generated_at)
+            """),
+            {
+                "filename": filename,
+                "report_date": report_date,
+                "event_id": event_id,
+                "format": fmt,
+                "size_bytes": size_bytes,
+                "generated_at": generated_at,
+            },
+        )
+        conn.commit()
+
+
+def check_report_cache(
+    report_date: date,
+    event_id: Optional[str],
+    fmt: str,
+    cache_minutes: int,
+) -> Optional[Dict[str, Any]]:
+    """Return metadata for the most recent matching cached report, or None."""
+    engine = _pg_engine()
+    if engine is None:
+        return None
+    with engine.connect() as conn:
+        result = conn.execute(
+            text("""
+                SELECT filename, size_bytes, generated_at
+                FROM generated_reports
+                WHERE report_date = :report_date
+                  AND format = :format
+                  AND (
+                      (:event_id IS NULL AND event_id IS NULL)
+                      OR event_id = :event_id
+                  )
+                  AND generated_at >= NOW() - (:cache_minutes || ' minutes')::INTERVAL
+                ORDER BY generated_at DESC
+                LIMIT 1
+            """),
+            {
+                "report_date": report_date,
+                "event_id": event_id,
+                "format": fmt,
+                "cache_minutes": cache_minutes,
+            },
+        )
+        row = result.fetchone()
+    if row is None:
+        return None
+    return {
+        "filename": row[0],
+        "size_bytes": row[1],
+        "generated_at": row[2],
+    }
 
 
 def _pg_engine():
@@ -89,13 +189,26 @@ def _query_invalid_scans(target_date: Optional[date] = None) -> Dict[str, int]:
 def generate_daily_report_csv(
     target_date: Optional[date] = None,
     output_format: str = "csv",
-) -> str:
+    event_id: Optional[str] = None,
+    force_regenerate: bool = False,
+    cache_minutes: int = 60,
+) -> Tuple[str, bool]:
     """Generate a daily sales report as CSV or JSON.
 
-    Returns the path to the generated file as a string.
+    Returns (path_to_generated_file, cache_hit).
+    When cache_hit is True the file already existed and was not regenerated.
     """
     if target_date is None:
         target_date = date.today()
+
+    # --- cache check ---
+    if not force_regenerate:
+        cached = check_report_cache(target_date, event_id, output_format, cache_minutes)
+        if cached is not None:
+            cached_path = str(REPORTS_DIR / cached["filename"])
+            if Path(cached_path).exists():
+                logger.info("Cache hit — returning existing report %s", cached["filename"])
+                return cached_path, True
 
     _ensure_reports_dir()
 
@@ -133,8 +246,12 @@ def generate_daily_report_csv(
         with open(filepath, "w") as f:
             json.dump(report_data, f, indent=2)
 
+        size_bytes = filepath.stat().st_size
+        now = datetime.utcnow()
+        insert_report_metadata(filename, report_date=target_date, event_id=event_id,
+                               fmt="json", size_bytes=size_bytes, generated_at=now)
         logger.info("Generated JSON report: %s", filepath)
-        return str(filepath)
+        return str(filepath), False
 
     # CSV format (default)
     filename = f"daily_report_{target_date}_{timestamp}.csv"
@@ -164,5 +281,9 @@ def generate_daily_report_csv(
                 f"${row['revenue']:.2f}",
             ])
 
+    size_bytes = filepath.stat().st_size
+    now = datetime.utcnow()
+    insert_report_metadata(filename, report_date=target_date, event_id=event_id,
+                           fmt="csv", size_bytes=size_bytes, generated_at=now)
     logger.info("Generated CSV report: %s", filepath)
-    return str(filepath)
+    return str(filepath), False

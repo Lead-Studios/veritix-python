@@ -37,6 +37,7 @@ class Settings(BaseSettings):
    
     POOL_SIZE: int = 5
     POOL_MAX_OVERFLOW: int = 10
+    REPORT_CACHE_MINUTES: int = 60
 
     SERVICE_API_KEY: str = "default_service_secret_change_me"
     ADMIN_API_KEY: str = "default_admin_secret_change_me"

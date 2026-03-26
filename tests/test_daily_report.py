@@ -63,9 +63,7 @@ def test_generate_daily_report_csv_format(mock_db_data):
          patch("src.report_service._query_invalid_scans", return_value={"invalid_scans": 2}):
         
         target_date = date(2025, 10, 4)
-        report_path = generate_daily_report_csv(target_date=target_date, output_format="csv")
-        
-        assert report_path is not None
+        report_path, _ = generate_daily_report_csv(target_date=target_date, output_format="csv")
         assert Path(report_path).exists()
         assert "daily_report_2025-10-04" in report_path
         assert report_path.endswith(".csv")
@@ -90,7 +88,7 @@ def test_generate_daily_report_json_format(mock_db_data):
          patch("src.report_service._query_invalid_scans", return_value={"invalid_scans": 2}):
         
         target_date = date(2025, 10, 4)
-        report_path = generate_daily_report_csv(target_date=target_date, output_format="json")
+        report_path, _ = generate_daily_report_csv(target_date=target_date, output_format="json")
         
         assert report_path is not None
         assert Path(report_path).exists()
@@ -200,8 +198,8 @@ def test_report_includes_all_summary_fields(mock_db_data):
          patch("src.report_service._query_invalid_scans", return_value={"invalid_scans": 7}):
         
         target_date = date(2025, 10, 4)
-        report_path = generate_daily_report_csv(target_date=target_date, output_format="json")
-        
+        report_path, _ = generate_daily_report_csv(target_date=target_date, output_format="json")
+
         with open(report_path, "r") as f:
             data = json.load(f)
             
@@ -235,8 +233,8 @@ def test_csv_report_structure(mock_db_data):
          patch("src.report_service._query_invalid_scans", return_value={"invalid_scans": 0}):
         
         target_date = date(2025, 10, 4)
-        report_path = generate_daily_report_csv(target_date=target_date, output_format="csv")
-        
+        report_path, _ = generate_daily_report_csv(target_date=target_date, output_format="csv")
+
         with open(report_path, "r") as f:
             reader = csv.reader(f)
             rows = list(reader)
