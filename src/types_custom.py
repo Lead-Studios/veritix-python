@@ -68,14 +68,24 @@ class QRValidateResponse(BaseModel):
 # --- Search Events Types ---
 class SearchEventsRequest(BaseModel):
     """Request body for /search-events endpoint.
-    
-    Contains a natural language query to search for events.
+
+    Contains a natural language query to search for events and optional
+    price/capacity filters that override NLP-inferred values.
     """
     model_config = ConfigDict(extra="forbid")
     query: str = Field(
-        ..., 
-        min_length=1, 
-        description="Natural language search query (e.g., 'music events in Lagos this weekend')"
+        ...,
+        min_length=1,
+        description="Natural language search query (e.g., 'music events in Lagos this weekend')",
+    )
+    min_price: Optional[float] = Field(
+        None, ge=0, description="Minimum ticket price filter (inclusive)"
+    )
+    max_price: Optional[float] = Field(
+        None, ge=0, description="Maximum ticket price filter (inclusive)"
+    )
+    max_capacity: Optional[int] = Field(
+        None, ge=1, description="Maximum venue capacity filter (inclusive)"
     )
 
 

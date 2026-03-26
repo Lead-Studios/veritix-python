@@ -1,10 +1,10 @@
 """Analytics models for tracking ticket scans, transfers, and invalid attempts."""
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, Text, Index
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 
-from src.config import get_settings
+import src.db as _db
 
 
 Base = declarative_base()
@@ -96,24 +96,18 @@ class AnalyticsStats(Base):
     )
 
 
-def get_database_url():
-    """Get database URL from centralized settings."""
-    return get_settings().DATABASE_URL
-
-
 def get_engine():
-    """Create database engine."""
-    return create_engine(get_database_url())
+    """Return the shared database engine from src.db."""
+    return _db.get_engine()
 
 
 def get_session():
-    """Create database session."""
-    engine = get_engine()
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    return SessionLocal()
+    """Return a database session from src.db."""
+    return _db.get_session()
 
 
 def init_db():
     """Initialize the database tables."""
     engine = get_engine()
-    Base.metadata.create_all(bind=engine)
+    if engine is not None:
+        Base.metadata.create_all(bind=engine)

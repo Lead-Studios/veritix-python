@@ -15,7 +15,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from src.analytics.models import get_engine
+import src.db as _db
 from src.config import get_settings
 
 logger = logging.getLogger("veritix.health")
@@ -61,7 +61,9 @@ def health() -> JSONResponse:
 def _check_database() -> str:
     """Return 'ok' if a SELECT 1 succeeds, otherwise 'error'."""
     try:
-        engine = get_engine()
+        engine = _db.get_engine()
+        if engine is None:
+            return "error"
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         return "ok"
@@ -80,6 +82,43 @@ def _check_nest_api() -> str:
     except Exception as exc:  # noqa: BLE001
         logger.warning("Readiness NestJS API check failed: %s", exc)
         return "error"
+
+
+@router.get("/health/db")
+def health_db() -> JSONResponse:
+    """Check database connectivity and return live pool statistics."""
+    try:
+        engine = _db.get_engine()
+        if engine is None:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "error",
+                    "reason": "DATABASE_URL not configured",
+                    "timestamp": _now_iso(),
+                },
+            )
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        pool_stats = _db.get_pool_status()
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "ok",
+                "pool": pool_stats,
+                "timestamp": _now_iso(),
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Database health check failed: %s", exc)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "error",
+                "reason": str(exc),
+                "timestamp": _now_iso(),
+            },
+        )
 
 
 @router.get("/ready")

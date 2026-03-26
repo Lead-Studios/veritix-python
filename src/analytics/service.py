@@ -1,10 +1,11 @@
 """Analytics service for tracking ticket scans, transfers, and invalid attempts."""
 import json
 import logging
+import time
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import asc, desc, func
+from sqlalchemy import asc, desc, func, text
 from sqlalchemy.orm import Session
 
 from src.analytics.models import (
@@ -14,7 +15,12 @@ from src.analytics.models import (
     TicketTransfer,
     get_session,
 )
+import src.db as _db
 from src.logging_config import log_error, log_info
+
+# Simple in-memory cache: (result, expiry_timestamp)
+_trending_cache: Optional[Tuple[List[Dict[str, Any]], float]] = None
+_TRENDING_CACHE_TTL = 600  # 10 minutes
 
 
 class AnalyticsService:
@@ -355,6 +361,83 @@ class AnalyticsService:
         finally:
             session.close()
     
+    def get_trending_events(self, limit: int = 10, hours: int = 24) -> List[Dict[str, Any]]:
+        """Return top events by scan velocity over the last N hours.
+
+        Results are cached for 10 minutes to avoid repeated heavy queries.
+        Joins with event_sales_summary to include event names where available.
+        """
+        global _trending_cache
+
+        # Return cached result if still valid
+        if _trending_cache is not None:
+            cached_result, expiry = _trending_cache
+            if time.monotonic() < expiry:
+                return cached_result[:limit]
+
+        engine = _db.get_engine()
+        if engine is None:
+            return []
+
+        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        try:
+            with engine.connect() as conn:
+                # Attempt join with event_sales_summary for event names
+                try:
+                    result = conn.execute(
+                        text("""
+                            SELECT ts.event_id,
+                                   COALESCE(ess.event_name, ts.event_id) AS event_name,
+                                   COUNT(*) AS scan_count
+                            FROM ticket_scans ts
+                            LEFT JOIN event_sales_summary ess
+                                   ON ts.event_id = ess.event_id
+                            WHERE ts.scan_timestamp >= :cutoff
+                            GROUP BY ts.event_id, ess.event_name
+                            ORDER BY scan_count DESC
+                            LIMIT :limit
+                        """),
+                        {"cutoff": cutoff, "limit": limit},
+                    )
+                    rows = [
+                        {
+                            "event_id": row[0],
+                            "event_name": row[1],
+                            "scan_count": int(row[2]),
+                            "window_hours": hours,
+                        }
+                        for row in result
+                    ]
+                except Exception:
+                    # Fallback: query ticket_scans only (event_sales_summary may not exist)
+                    result = conn.execute(
+                        text("""
+                            SELECT event_id, COUNT(*) AS scan_count
+                            FROM ticket_scans
+                            WHERE scan_timestamp >= :cutoff
+                            GROUP BY event_id
+                            ORDER BY scan_count DESC
+                            LIMIT :limit
+                        """),
+                        {"cutoff": cutoff, "limit": limit},
+                    )
+                    rows = [
+                        {
+                            "event_id": row[0],
+                            "event_name": row[0],
+                            "scan_count": int(row[1]),
+                            "window_hours": hours,
+                        }
+                        for row in result
+                    ]
+        except Exception as exc:
+            log_error("Failed to get trending events", {"error": str(exc)})
+            return []
+
+        # Cache the full ordered result (up to a large limit for reuse)
+        _trending_cache = (rows, time.monotonic() + _TRENDING_CACHE_TTL)
+        return rows[:limit]
+
     def _update_analytics_stats(self, event_id: str, 
                                increment_scan: bool = False, is_valid: bool = True,
                                increment_transfer: bool = False, is_successful: bool = True,
