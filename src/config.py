@@ -37,6 +37,10 @@ class Settings(BaseSettings):
    
     SERVICE_API_KEY: str = "default_service_secret_change_me"
     ADMIN_API_KEY: str = "default_admin_secret_change_me"
+    KNOWN_LOCATIONS: str = (
+        "lagos,abuja,port harcourt,kano,ibadan,benin,kaduna,jos,enugu,calabar,"
+        "owerri,warri,uyo,akure,ilorin,sokoto,zaria,maiduguri,asaba,nnewi"
+    )
 
     class Config:
         env_file = ".env"

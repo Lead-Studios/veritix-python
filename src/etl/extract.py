@@ -172,22 +172,36 @@ def _to_ticket_sale_record(item: Dict[str, Any]) -> TicketSaleRecord:
     )
 
 
-def extract_events_and_sales() -> Tuple[List[EventRecord], List[TicketSaleRecord]]:
-    """Fetch all events (paginated) and all ticket-sales from the upstream API."""
+def extract_events_and_sales(
+    since: Optional[str] = None,
+) -> Tuple[List[EventRecord], List[TicketSaleRecord]]:
+    """Fetch events and ticket-sales from the upstream API.
+
+    Args:
+        since: Optional ISO-8601 datetime string.  When provided, the
+            ``?since=`` query parameter is forwarded to both the ``/events``
+            and ``/ticket-sales`` endpoints so that only records created after
+            that timestamp are returned (incremental extract).  On the very
+            first run (no previous successful cursor) pass ``None`` to fetch
+            all records.
+    """
     settings = get_settings()
     base_url = settings.NEST_API_BASE_URL.rstrip("/")
     headers = _auth_headers()
     events: List[EventRecord] = []
 
+    since_params: Dict[str, Any] = {"since": since} if since else {}
+
     with httpx.Client(timeout=REQUEST_TIMEOUT_SECONDS) as client:
         page = 1
         while True:
+            params: Dict[str, Any] = {"page": page, **since_params}
             response = _request_with_retry(
                 client=client,
                 url=f"{base_url}/events",
                 headers=headers,
                 dataset="events",
-                params={"page": page},
+                params=params,
             )
             payload: Any = response.json()
             items = _normalize_items(payload)
@@ -202,6 +216,7 @@ def extract_events_and_sales() -> Tuple[List[EventRecord], List[TicketSaleRecord
             url=f"{base_url}/ticket-sales",
             headers=headers,
             dataset="ticket-sales",
+            params=since_params if since_params else None,
         )
         sales_payload: Any = sales_response.json()
         sales_items = _normalize_items(sales_payload)
@@ -209,6 +224,6 @@ def extract_events_and_sales() -> Tuple[List[EventRecord], List[TicketSaleRecord
 
     log_info(
         "ETL extract completed",
-        {"events_count": len(events), "sales_count": len(sales)},
+        {"events_count": len(events), "sales_count": len(sales), "since": since},
     )
     return events, sales

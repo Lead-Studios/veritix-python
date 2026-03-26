@@ -3,6 +3,8 @@ import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
+from src.config import get_settings
+
 
 def extract_keywords(query: str) -> Dict[str, Any]:
     """Extract keywords from a natural language search query.
@@ -41,23 +43,25 @@ def extract_keywords(query: str) -> Dict[str, Any]:
                 matched_keywords.add(kw)
                 break
 
+    known_locations_raw = get_settings().KNOWN_LOCATIONS
     location_keywords: List[str] = [
-        "lagos",
-        "abuja",
-        "port harcourt",
-        "kano",
-        "ibadan",
-        "benin",
-        "kaduna",
-        "jos",
-        "enugu",
-        "calabar",
+        loc.strip() for loc in known_locations_raw.split(",") if loc.strip()
     ]
 
     detected_locations: List[str] = []
     for location in location_keywords:
         if location in query_lower:
             detected_locations.append(location.title())
+
+    # Detect potential unknown-city fuzzy candidates — words following a
+    # location preposition that are not already matched to a known location.
+    known_lower: set[str] = {loc.lower() for loc in location_keywords}
+    fuzzy_locations: List[str] = []
+    prep_hits = re.findall(r"\b(?:in|at|near)\s+([a-z][a-z ]+?)(?=\s+(?:this|today|tomorrow|next|week|month|weekend)\b|$)", query_lower)
+    for hit in prep_hits:
+        hit = hit.strip()
+        if hit and hit not in known_lower:
+            fuzzy_locations.append(hit)
 
     time_filter: Optional[str] = None
     if any(word in query_lower for word in ["today", "tonight"]):
@@ -89,6 +93,7 @@ def extract_keywords(query: str) -> Dict[str, Any]:
     return {
         "event_types": detected_event_types,
         "locations": detected_locations,
+        "fuzzy_locations": fuzzy_locations,
         "time_filter": time_filter,
         "keywords": general_keywords,
     }
@@ -109,7 +114,8 @@ def filter_events_by_keywords(
     """
     # No filters — return everything
     if not any([keywords["event_types"], keywords["locations"],
-                keywords["time_filter"], keywords["keywords"]]):
+                keywords.get("fuzzy_locations"), keywords["time_filter"],
+                keywords["keywords"]]):
         return events
 
     filtered_events: List[Dict[str, Any]] = []
@@ -123,7 +129,20 @@ def filter_events_by_keywords(
 
         if keywords["locations"] and matches:
             event_location: str = str(event.get("location", "")).lower()
-            if not any(loc.lower() in event_location for loc in keywords["locations"]):
+            event_city: str = str(event.get("city", "")).lower()
+            if not any(
+                loc.lower() in event_location or loc.lower() in event_city
+                for loc in keywords["locations"]
+            ):
+                matches = False
+        elif keywords.get("fuzzy_locations") and matches:
+            # Fuzzy match: unknown city — try substring against location/city fields
+            event_location = str(event.get("location", "")).lower()
+            event_city = str(event.get("city", "")).lower()
+            if not any(
+                floc in event_location or floc in event_city
+                for floc in keywords["fuzzy_locations"]
+            ):
                 matches = False
 
         if keywords["time_filter"] and matches:
