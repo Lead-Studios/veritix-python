@@ -5,26 +5,17 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import text
 
-from src.config import get_settings
+import src.db as _db
 
 logger = logging.getLogger("veritix.report_service")
 
 REPORTS_DIR = Path("reports")
 
 
-def _pg_engine() -> Optional[Engine]:
-    url = get_settings().DATABASE_URL
-    if not url:
-        logger.info("DATABASE_URL not set; skipping Postgres engine creation")
-        return None
-    try:
-        engine = create_engine(url, pool_pre_ping=True)
-        return engine
-    except Exception as exc:
-        logger.error("Failed to create PG engine: %s", exc)
-        return None
+def _pg_engine():
+    return _db.get_engine()
 
 
 def _ensure_reports_dir() -> None:
