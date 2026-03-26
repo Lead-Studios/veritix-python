@@ -52,6 +52,11 @@ from src.revenue_sharing_models import (
     RevenueShareConfig,
 )
 from src.revenue_sharing_service import revenue_sharing_service
+from src.recommender import (
+    build_item_similarity_matrix,
+    get_item_recommendations,
+    get_user_events_from_db,
+)
 from src.search_utils import extract_keywords, filter_events_by_keywords
 from src.types_custom import (
     AnalyticsInvalidAttemptsResponse,
@@ -408,18 +413,17 @@ def search_events(payload: SearchEventsRequest) -> Any:
 @app.post("/recommend-events", response_model=RecommendResponse)
 def recommend_events(payload: RecommendRequest) -> RecommendResponse:
     user_id = payload.user_id
-    if user_id not in mock_user_events:
-        raise HTTPException(status_code=404, detail={"message": "User not found"})
-    user_evts: set[str] = set(mock_user_events[user_id])
-    scores: Dict[str, int] = {}
-    for other_user, events in mock_user_events.items():
-        if other_user == user_id:
-            continue
-        overlap = len(user_evts.intersection(events))
-        for e in events:
-            if e not in user_evts:
-                scores[e] = scores.get(e, 0) + overlap
-    recommended = sorted(scores, key=lambda k: scores[k], reverse=True)[:3]
+    # Prefer DB-sourced history; fall back to mock data when DB is unavailable.
+    user_events_dict = get_user_events_from_db()
+    if not user_events_dict:
+        user_events_dict = mock_user_events
+    similarity_matrix = build_item_similarity_matrix(user_events_dict)
+    recommended = get_item_recommendations(
+        user_id=user_id,
+        user_events_dict=user_events_dict,
+        similarity_matrix=similarity_matrix,
+        top_n=3,
+    )
     return RecommendResponse(recommendations=recommended)
 
 
