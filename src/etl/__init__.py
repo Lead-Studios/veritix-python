@@ -24,6 +24,7 @@ except Exception:
 
 from src.logging_config import ETL_JOBS_TOTAL, log_error, log_info, log_warning
 from src.config import get_settings
+import src.db as _db
 from .extract import extract_events_and_sales
 
 logger = logging.getLogger("veritix.etl")
@@ -257,14 +258,7 @@ def transform_summary(
 # ---------------------------------------------------------------------------
 
 def _pg_engine() -> Optional[Engine]:
-    url = get_settings().DATABASE_URL
-    if not url:
-        return None
-    try:
-        return create_engine(url, pool_pre_ping=True)
-    except Exception as exc:
-        logger.error("Failed to create PG engine: %s", exc)
-        return None
+    return _db.get_engine()
 
 
 def load_postgres(
@@ -434,6 +428,99 @@ def load_bigquery(
             "daily_sales_count": len(daily_rows_json),
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# ETL Diff (dry-run)
+# ---------------------------------------------------------------------------
+
+def diff_etl_output(
+    event_rows: List[Dict[str, Any]],
+    daily_rows: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Compare transformed rows against the current PostgreSQL data without loading.
+
+    Returns a summary of what the next real ETL run would insert, update, or leave
+    unchanged for both the event_sales_summary and daily_ticket_sales tables.
+    """
+    engine = _pg_engine()
+    if engine is None:
+        logger.info("DATABASE_URL not set; returning empty diff")
+        return {
+            "events": {"would_insert": 0, "would_update": 0, "unchanged": 0},
+            "daily": {"would_insert": 0, "would_update": 0, "unchanged": 0},
+        }
+
+    current_events: Dict[str, Dict[str, Any]] = {}
+    current_daily: Dict[tuple, Dict[str, Any]] = {}
+
+    with engine.connect() as conn:
+        try:
+            result = conn.execute(
+                text("SELECT event_id, total_tickets, total_revenue FROM event_sales_summary")
+            )
+            for row in result:
+                current_events[str(row[0])] = {
+                    "total_tickets": int(row[1]) if row[1] is not None else 0,
+                    "total_revenue": float(row[2]) if row[2] is not None else 0.0,
+                }
+        except Exception:
+            pass  # table may not exist yet
+
+        try:
+            result = conn.execute(
+                text("SELECT event_id, sale_date, tickets_sold, revenue FROM daily_ticket_sales")
+            )
+            for row in result:
+                current_daily[(str(row[0]), str(row[1]))] = {
+                    "tickets_sold": int(row[2]) if row[2] is not None else 0,
+                    "revenue": float(row[3]) if row[3] is not None else 0.0,
+                }
+        except Exception:
+            pass  # table may not exist yet
+
+    ev_insert = ev_update = ev_unchanged = 0
+    for row in event_rows:
+        eid = str(row.get("event_id", ""))
+        if eid not in current_events:
+            ev_insert += 1
+        else:
+            cur = current_events[eid]
+            if (
+                cur["total_tickets"] != int(row.get("total_tickets", 0))
+                or abs(cur["total_revenue"] - float(row.get("total_revenue", 0.0))) > 0.005
+            ):
+                ev_update += 1
+            else:
+                ev_unchanged += 1
+
+    daily_insert = daily_update = daily_unchanged = 0
+    for row in daily_rows:
+        key = (str(row.get("event_id", "")), str(row.get("sale_date", "")))
+        if key not in current_daily:
+            daily_insert += 1
+        else:
+            cur = current_daily[key]
+            if (
+                cur["tickets_sold"] != int(row.get("tickets_sold", 0))
+                or abs(cur["revenue"] - float(row.get("revenue", 0.0))) > 0.005
+            ):
+                daily_update += 1
+            else:
+                daily_unchanged += 1
+
+    return {
+        "events": {
+            "would_insert": ev_insert,
+            "would_update": ev_update,
+            "unchanged": ev_unchanged,
+        },
+        "daily": {
+            "would_insert": daily_insert,
+            "would_update": daily_update,
+            "unchanged": daily_unchanged,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

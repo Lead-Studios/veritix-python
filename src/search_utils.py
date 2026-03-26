@@ -90,32 +90,67 @@ def extract_keywords(query: str) -> Dict[str, Any]:
         word for word in words if word not in stop_words and len(word) > 2
     ]
 
+    # Price-intent detection
+    # "free" / "affordable" / "cheap" / "budget" → max_price hint
+    # "premium" / "vip" / "luxury" / "expensive" → min_price hint
+    nlp_min_price: Optional[float] = None
+    nlp_max_price: Optional[float] = None
+
+    if any(word in query_lower for word in ["free", "no cost", "zero"]):
+        nlp_max_price = 0.0
+    elif any(word in query_lower for word in ["cheap", "affordable", "budget", "low cost", "low-cost"]):
+        nlp_max_price = 5000.0
+    elif any(word in query_lower for word in ["premium", "vip", "luxury", "expensive", "high-end"]):
+        nlp_min_price = 10000.0
+
     return {
         "event_types": detected_event_types,
         "locations": detected_locations,
         "fuzzy_locations": fuzzy_locations,
         "time_filter": time_filter,
         "keywords": general_keywords,
+        "min_price": nlp_min_price,
+        "max_price": nlp_max_price,
+        "max_capacity": None,
     }
 
 
 def filter_events_by_keywords(
     events: List[Dict[str, Any]],
     keywords: Dict[str, Any],
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
+    max_capacity: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    """Filter events based on extracted keywords.
+    """Filter events based on extracted keywords and optional price/capacity filters.
 
     Args:
         events: List of event dictionaries
         keywords: Dictionary of extracted keywords from extract_keywords()
+        min_price: Override/supplement NLP-inferred minimum price filter
+        max_price: Override/supplement NLP-inferred maximum price filter
+        max_capacity: Maximum venue capacity filter
 
     Returns:
         List of matching events
     """
+    # Merge explicit filter params with NLP-inferred values (explicit takes precedence)
+    effective_min_price: Optional[float] = min_price if min_price is not None else keywords.get("min_price")
+    effective_max_price: Optional[float] = max_price if max_price is not None else keywords.get("max_price")
+    effective_max_capacity: Optional[int] = max_capacity if max_capacity is not None else keywords.get("max_capacity")
+
+    has_price_capacity_filter = (
+        effective_min_price is not None
+        or effective_max_price is not None
+        or effective_max_capacity is not None
+    )
+
     # No filters — return everything
     if not any([keywords["event_types"], keywords["locations"],
                 keywords.get("fuzzy_locations"), keywords["time_filter"],
                 keywords["keywords"]]):
+                keywords["time_filter"], keywords["keywords"],
+                has_price_capacity_filter]):
         return events
 
     filtered_events: List[Dict[str, Any]] = []
@@ -205,6 +240,32 @@ def filter_events_by_keywords(
                     or keywords["time_filter"]
                 ):
                     matches = False
+
+        # Price filters
+        if matches and effective_min_price is not None:
+            try:
+                event_price = float(event.get("price", 0))
+                if event_price < effective_min_price:
+                    matches = False
+            except (TypeError, ValueError):
+                matches = False
+
+        if matches and effective_max_price is not None:
+            try:
+                event_price = float(event.get("price", 0))
+                if event_price > effective_max_price:
+                    matches = False
+            except (TypeError, ValueError):
+                matches = False
+
+        # Capacity filter
+        if matches and effective_max_capacity is not None:
+            try:
+                event_capacity = int(event.get("capacity", 0))
+                if event_capacity > effective_max_capacity:
+                    matches = False
+            except (TypeError, ValueError):
+                matches = False
 
         if matches:
             filtered_events.append(event)

@@ -17,7 +17,7 @@ from src.analytics.service import analytics_service
 from src.chat import ChatMessage, EscalationEvent, chat_manager
 from src.config import get_settings
 from src.core.ratelimit import limiter
-from src.etl import run_etl_once
+from src.etl import diff_etl_output, extract_events_and_sales, run_etl_once, transform_summary
 from src.exceptions import register_exception_handlers
 from src.fraud import check_fraud_rules
 from src.logging_config import (
@@ -377,7 +377,13 @@ def search_events(payload: SearchEventsRequest) -> Any:
     try:
         keywords = extract_keywords(payload.query)
         all_events = get_mock_events()
-        matching_events = filter_events_by_keywords(all_events, keywords)
+        matching_events = filter_events_by_keywords(
+            all_events,
+            keywords,
+            min_price=payload.min_price,
+            max_price=payload.max_price,
+            max_capacity=payload.max_capacity,
+        )
 
         event_results = [
             EventResult(
@@ -669,3 +675,78 @@ async def get_user_conversations(user_id: str) -> ChatUserConversationsResponse:
     except Exception as exc:
         logger.error("Error getting user conversations: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to get user conversations")
+
+
+# ---------------------------------------------------------------------------
+# Trending events
+# ---------------------------------------------------------------------------
+
+@app.get("/events/trending", response_model=List[Dict[str, Any]])
+def get_trending_events(
+    limit: int = Query(10, ge=1, le=100, description="Maximum number of trending events to return"),
+) -> Any:
+    """Return top events ranked by ticket scan velocity in the last 24 hours.
+
+    Results are cached for 10 minutes.
+    """
+    try:
+        results = analytics_service.get_trending_events(limit=limit, hours=24)
+        return results
+    except Exception as exc:
+        log_error("Failed to get trending events", {"error": str(exc)})
+        raise HTTPException(status_code=500, detail=f"Failed to get trending events: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# ETL diff (dry-run) — admin only
+# ---------------------------------------------------------------------------
+
+# In-memory store for async ETL diff jobs
+_etl_diff_jobs: Dict[str, Any] = {}
+
+
+@app.get("/etl/diff")
+def etl_diff(request: Request) -> Any:
+    """Dry-run ETL diff: show what the next ETL run would load without committing.
+
+    Requires X-Admin-Key header matching ADMIN_API_KEY.
+    For slow extracts (> 5 s) returns HTTP 202 with a job_id for async polling.
+    """
+    import threading
+    import time as _time
+
+    api_key = request.headers.get("X-Admin-Key", "")
+    if api_key != get_settings().ADMIN_API_KEY:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    start = _time.monotonic()
+    try:
+        events, sales = extract_events_and_sales()
+        elapsed = _time.monotonic() - start
+
+        ev_rows, daily_rows = transform_summary(
+            [e.raw for e in events], [s.raw for s in sales]
+        )
+
+        if elapsed > 5.0:
+            job_id = str(uuid.uuid4())
+
+            def _run_diff() -> None:
+                result = diff_etl_output(ev_rows, daily_rows)
+                _etl_diff_jobs[job_id] = {"status": "complete", "result": result}
+
+            _etl_diff_jobs[job_id] = {"status": "pending"}
+            threading.Thread(target=_run_diff, daemon=True).start()
+            return JSONResponse(
+                status_code=202,
+                content={"job_id": job_id, "status": "pending"},
+            )
+
+        result = diff_etl_output(ev_rows, daily_rows)
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log_error("ETL diff failed", {"error": str(exc)})
+        raise HTTPException(status_code=500, detail=f"ETL diff failed: {exc}")

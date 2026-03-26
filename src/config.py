@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     BQ_TABLE_DAILY_SALES: str = "daily_ticket_sales"
 
    
+    POOL_SIZE: int = 5
+    POOL_MAX_OVERFLOW: int = 10
+
     SERVICE_API_KEY: str = "default_service_secret_change_me"
     ADMIN_API_KEY: str = "default_admin_secret_change_me"
     KNOWN_LOCATIONS: str = (
