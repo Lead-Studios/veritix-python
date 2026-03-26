@@ -1,6 +1,7 @@
 import csv
 import json
 import logging
+import re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -12,6 +13,110 @@ import src.db as _db
 logger = logging.getLogger("veritix.report_service")
 
 REPORTS_DIR = Path("reports")
+
+# ---------------------------------------------------------------------------
+# generated_reports table helpers
+# ---------------------------------------------------------------------------
+
+_FILENAME_RE = re.compile(r"^daily_report_(\d{4}-\d{2}-\d{2})_\d{8}_\d{6}\.(csv|json)$")
+
+
+def create_generated_reports_table() -> None:
+    """Create the generated_reports table if it does not yet exist."""
+    engine = _pg_engine()
+    if engine is None:
+        logger.info("Skipping generated_reports table creation — no DB engine")
+        return
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS generated_reports (
+                id          SERIAL PRIMARY KEY,
+                filename    TEXT        NOT NULL UNIQUE,
+                report_date DATE        NOT NULL,
+                format      TEXT        NOT NULL,
+                size_bytes  BIGINT      NOT NULL,
+                generated_at TIMESTAMP  NOT NULL
+            )
+        """))
+    logger.info("generated_reports table ready")
+
+
+def insert_report_metadata(
+    filename: str,
+    report_date: date,
+    fmt: str,
+    size_bytes: int,
+    generated_at: datetime,
+) -> None:
+    """Insert a single report row, silently ignoring duplicate filenames."""
+    engine = _pg_engine()
+    if engine is None:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text("""
+                INSERT INTO generated_reports (filename, report_date, format, size_bytes, generated_at)
+                VALUES (:filename, :report_date, :format, :size_bytes, :generated_at)
+                ON CONFLICT (filename) DO NOTHING
+            """),
+            {
+                "filename": filename,
+                "report_date": report_date,
+                "format": fmt,
+                "size_bytes": size_bytes,
+                "generated_at": generated_at,
+            },
+        )
+
+
+def list_reports() -> List[Dict[str, Any]]:
+    """Return up to 100 most recently generated reports from the DB."""
+    engine = _pg_engine()
+    if engine is None:
+        return []
+    with engine.connect() as conn:
+        result = conn.execute(text("""
+            SELECT filename, report_date, format, size_bytes, generated_at
+            FROM generated_reports
+            ORDER BY generated_at DESC
+            LIMIT 100
+        """))
+        rows: List[Dict[str, Any]] = []
+        for row in result:
+            filename = row[0]
+            rows.append({
+                "filename": filename,
+                "report_date": str(row[1]),
+                "format": row[2],
+                "size_bytes": row[3],
+                "generated_at": row[4].isoformat() if hasattr(row[4], "isoformat") else str(row[4]),
+                "download_url": f"/reports/download/{filename}",
+            })
+        return rows
+
+
+def scan_and_populate_reports() -> None:
+    """Scan the reports/ directory and insert metadata for any file not yet in the DB."""
+    engine = _pg_engine()
+    if engine is None:
+        return
+    _ensure_reports_dir()
+    for filepath in sorted(REPORTS_DIR.iterdir()):
+        if not filepath.is_file():
+            continue
+        m = _FILENAME_RE.match(filepath.name)
+        if not m:
+            continue
+        try:
+            report_date = date.fromisoformat(m.group(1))
+            fmt = m.group(2)
+            size_bytes = filepath.stat().st_size
+            # Use file modification time as a best-effort generated_at
+            generated_at = datetime.utcfromtimestamp(filepath.stat().st_mtime)
+            insert_report_metadata(filepath.name, report_date, fmt, size_bytes, generated_at)
+        except Exception as exc:
+            logger.warning("Skipping %s during scan: %s", filepath.name, exc)
+    logger.info("reports/ directory scan complete")
 
 
 def _pg_engine():
@@ -133,6 +238,14 @@ def generate_daily_report_csv(
         with open(filepath, "w") as f:
             json.dump(report_data, f, indent=2)
 
+        generated_at = datetime.utcnow()
+        insert_report_metadata(
+            filename=filename,
+            report_date=target_date,
+            fmt="json",
+            size_bytes=filepath.stat().st_size,
+            generated_at=generated_at,
+        )
         logger.info("Generated JSON report: %s", filepath)
         return str(filepath)
 
@@ -164,5 +277,13 @@ def generate_daily_report_csv(
                 f"${row['revenue']:.2f}",
             ])
 
+    generated_at = datetime.utcnow()
+    insert_report_metadata(
+        filename=filename,
+        report_date=target_date,
+        fmt="csv",
+        size_bytes=filepath.stat().st_size,
+        generated_at=generated_at,
+    )
     logger.info("Generated CSV report: %s", filepath)
     return str(filepath)
