@@ -60,6 +60,7 @@ Copy `.env.example` to `.env` (done automatically by `make dev-setup`) and fill 
 | `ENABLE_ETL_SCHEDULER`    |          | Set `true` to run the ETL on a schedule                                                |
 | `ETL_CRON`                |          | Cron expression (UTC) — takes precedence over `ETL_INTERVAL_MINUTES`                   |
 | `ETL_INTERVAL_MINUTES`    |          | ETL polling interval in minutes (default `15`)                                         |
+| `SHUTDOWN_TIMEOUT_SECONDS` |          | Graceful shutdown timeout in seconds (default `30`)                                    |
 | `BQ_ENABLED`              |          | Set `true` to enable BigQuery loading                                                  |
 | `BQ_PROJECT_ID`           |          | GCP project ID                                                                         |
 | `BQ_DATASET`              |          | BigQuery dataset name                                                                  |

@@ -36,6 +36,10 @@ COPY run.py /app/
 # Port the application listens on
 EXPOSE 8000
 
+# Health check to ensure the container is responding to requests
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD curl -f http://localhost:8000/health || exit 1
+
 # Command to run the application using Uvicorn
 # The command format is: uvicorn [module:app_object] --host [ip] --port [port]
 # We use the standard uvicorn worker configuration
