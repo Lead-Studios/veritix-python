@@ -224,28 +224,43 @@ class AnalyticsStatsQuery(BaseModel):
 class AnalyticsListQuery(BaseModel):
     model_config = ConfigDict(extra="forbid")
     event_id: str = Field(..., min_length=1)
-    limit: int = Field(50, ge=1, le=500)
+    from_ts: Optional[datetime] = Field(None, description="Start datetime filter (ISO string)")
+    to_ts: Optional[datetime] = Field(None, description="End datetime filter (ISO string)")
+    page: int = Field(1, ge=1, description="Page number (1-based)")
+    limit: int = Field(100, ge=1, le=1000, description="Items per page (max 1000)")
 
 
 class AnalyticsScansResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     event_id: str
-    scans: List[Dict[str, Any]]
-    count: int
+    data: List[Dict[str, Any]] = Field(..., description="Paginated scan records")
+    total: int = Field(..., description="Total number of records matching filters")
+    page: int = Field(..., description="Current page number (1-based)")
+    limit: int = Field(..., description="Items per page")
+    from_ts: Optional[datetime] = Field(None, description="Start datetime filter applied")
+    to_ts: Optional[datetime] = Field(None, description="End datetime filter applied")
 
 
 class AnalyticsTransfersResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     event_id: str
-    transfers: List[Dict[str, Any]]
-    count: int
+    data: List[Dict[str, Any]] = Field(..., description="Paginated transfer records")
+    total: int = Field(..., description="Total number of records matching filters")
+    page: int = Field(..., description="Current page number (1-based)")
+    limit: int = Field(..., description="Items per page")
+    from_ts: Optional[datetime] = Field(None, description="Start datetime filter applied")
+    to_ts: Optional[datetime] = Field(None, description="End datetime filter applied")
 
 
 class AnalyticsInvalidAttemptsResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     event_id: str
-    attempts: List[Dict[str, Any]]
-    count: int
+    data: List[Dict[str, Any]] = Field(..., description="Paginated invalid attempt records")
+    total: int = Field(..., description="Total number of records matching filters")
+    page: int = Field(..., description="Current page number (1-based)")
+    limit: int = Field(..., description="Items per page")
+    from_ts: Optional[datetime] = Field(None, description="Start datetime filter applied")
+    to_ts: Optional[datetime] = Field(None, description="End datetime filter applied")
 
 
 class RootResponse(BaseModel):

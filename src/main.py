@@ -215,12 +215,20 @@ def on_shutdown() -> None:
 def read_root() -> RootResponse:
     return RootResponse(message="Veritix Service is running. Check /health for status.")
 
-
-
 @app.get("/metrics", response_class=PlainTextResponse, response_model=str)
-async def metrics_endpoint() -> PlainTextResponse:
-    """Prometheus metrics endpoint."""
-    log_info("Metrics endpoint requested")
+async def metrics_endpoint(_: str = Depends(require_admin_key)) -> PlainTextResponse:
+    """Prometheus metrics endpoint (ADMIN)."""
+    settings = get_settings()
+    
+    # Return 503 if ADMIN_API_KEY is still the default value
+    if settings.ADMIN_API_KEY == "default_admin_secret_change_me":
+        return PlainTextResponse(
+            content="503 Service Unavailable: ADMIN_API_KEY not configured. Please set a secure ADMIN_API_KEY environment variable to access metrics.",
+            status_code=503,
+            media_type="text/plain"
+        )
+    
+    log_info("Metrics endpoint requested (authenticated)")
     return PlainTextResponse(content=get_metrics(), media_type=get_metrics_content_type())
 
 
@@ -331,16 +339,39 @@ def get_analytics_stats(query: Annotated[AnalyticsStatsQuery, Query()]) -> Any:
 
 @app.get("/stats/scans", response_model=AnalyticsScansResponse)
 def get_recent_scans(query: Annotated[AnalyticsListQuery, Query()]) -> AnalyticsScansResponse:
-    """Get recent scan records for an event."""
-    event_id = query.event_id
-    limit = query.limit
-    log_info("Recent scans requested", {"event_id": event_id, "limit": limit})
+    """Get recent scan records for an event with date filtering and pagination."""
+    log_info("Recent scans requested", {
+        "event_id": query.event_id,
+        "from_ts": query.from_ts.isoformat() if query.from_ts else None,
+        "to_ts": query.to_ts.isoformat() if query.to_ts else None,
+        "page": query.page,
+        "limit": query.limit
+    })
     try:
-        scans = analytics_service.get_recent_scans(event_id, limit)
-        log_info("Recent scans retrieved", {"event_id": event_id, "scan_count": len(scans)})
-        return AnalyticsScansResponse(event_id=event_id, scans=scans, count=len(scans))
+        result = analytics_service.get_recent_scans(
+            event_id=query.event_id,
+            from_ts=query.from_ts,
+            to_ts=query.to_ts,
+            page=query.page,
+            limit=query.limit
+        )
+        log_info("Recent scans retrieved", {
+            "event_id": query.event_id,
+            "total": result["total"],
+            "page": result["page"],
+            "limit": result["limit"]
+        })
+        return AnalyticsScansResponse(
+            event_id=query.event_id,
+            data=result["data"],
+            total=result["total"],
+            page=result["page"],
+            limit=result["limit"],
+            from_ts=query.from_ts,
+            to_ts=query.to_ts
+        )
     except Exception as exc:
-        log_error("Failed to retrieve recent scans", {"event_id": event_id, "error": str(exc)})
+        log_error("Failed to retrieve recent scans", {"event_id": query.event_id, "error": str(exc)})
         raise HTTPException(status_code=500, detail=f"Failed to retrieve recent scans: {exc}")
 
 
@@ -348,15 +379,39 @@ def get_recent_scans(query: Annotated[AnalyticsListQuery, Query()]) -> Analytics
 def get_recent_transfers(
     query: Annotated[AnalyticsListQuery, Query()]
 ) -> AnalyticsTransfersResponse:
-    """Get recent transfer records for an event."""
-    event_id = query.event_id
-    limit = query.limit
-    log_info("Recent transfers requested", {"event_id": event_id, "limit": limit})
+    """Get recent transfer records for an event with date filtering and pagination."""
+    log_info("Recent transfers requested", {
+        "event_id": query.event_id,
+        "from_ts": query.from_ts.isoformat() if query.from_ts else None,
+        "to_ts": query.to_ts.isoformat() if query.to_ts else None,
+        "page": query.page,
+        "limit": query.limit
+    })
     try:
-        transfers = analytics_service.get_recent_transfers(event_id, limit)
-        return AnalyticsTransfersResponse(event_id=event_id, transfers=transfers, count=len(transfers))
+        result = analytics_service.get_recent_transfers(
+            event_id=query.event_id,
+            from_ts=query.from_ts,
+            to_ts=query.to_ts,
+            page=query.page,
+            limit=query.limit
+        )
+        log_info("Recent transfers retrieved", {
+            "event_id": query.event_id,
+            "total": result["total"],
+            "page": result["page"],
+            "limit": result["limit"]
+        })
+        return AnalyticsTransfersResponse(
+            event_id=query.event_id,
+            data=result["data"],
+            total=result["total"],
+            page=result["page"],
+            limit=result["limit"],
+            from_ts=query.from_ts,
+            to_ts=query.to_ts
+        )
     except Exception as exc:
-        log_error("Failed to retrieve recent transfers", {"event_id": event_id, "error": str(exc)})
+        log_error("Failed to retrieve recent transfers", {"event_id": query.event_id, "error": str(exc)})
         raise HTTPException(status_code=500, detail=f"Failed to retrieve recent transfers: {exc}")
 
 
@@ -364,15 +419,39 @@ def get_recent_transfers(
 def get_invalid_attempts(
     query: Annotated[AnalyticsListQuery, Query()]
 ) -> AnalyticsInvalidAttemptsResponse:
-    """Get recent invalid scan attempt records for an event."""
-    event_id = query.event_id
-    limit = query.limit
-    log_info("Invalid attempts requested", {"event_id": event_id, "limit": limit})
+    """Get recent invalid scan attempt records for an event with date filtering and pagination."""
+    log_info("Invalid attempts requested", {
+        "event_id": query.event_id,
+        "from_ts": query.from_ts.isoformat() if query.from_ts else None,
+        "to_ts": query.to_ts.isoformat() if query.to_ts else None,
+        "page": query.page,
+        "limit": query.limit
+    })
     try:
-        attempts = analytics_service.get_invalid_attempts(event_id, limit)
-        return AnalyticsInvalidAttemptsResponse(event_id=event_id, attempts=attempts, count=len(attempts))
+        result = analytics_service.get_invalid_attempts(
+            event_id=query.event_id,
+            from_ts=query.from_ts,
+            to_ts=query.to_ts,
+            page=query.page,
+            limit=query.limit
+        )
+        log_info("Invalid attempts retrieved", {
+            "event_id": query.event_id,
+            "total": result["total"],
+            "page": result["page"],
+            "limit": result["limit"]
+        })
+        return AnalyticsInvalidAttemptsResponse(
+            event_id=query.event_id,
+            data=result["data"],
+            total=result["total"],
+            page=result["page"],
+            limit=result["limit"],
+            from_ts=query.from_ts,
+            to_ts=query.to_ts
+        )
     except Exception as exc:
-        log_error("Failed to retrieve invalid attempts", {"event_id": event_id, "error": str(exc)})
+        log_error("Failed to retrieve invalid attempts", {"event_id": query.event_id, "error": str(exc)})
         raise HTTPException(status_code=500, detail=f"Failed to retrieve invalid attempts: {exc}")
 
 
