@@ -4,14 +4,17 @@ import io
 import json
 import logging
 import os
+import re
 from datetime import date, datetime
 from typing import Annotated, Any, Dict, List, Optional
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
+
+from src.auth.dependencies import require_admin_key
 
 from src.analytics.service import analytics_service
 from src.chat import ChatMessage, EscalationEvent, chat_manager
@@ -46,6 +49,8 @@ from src.report_service import (
     _query_transfer_stats,
     create_generated_reports_table,
     generate_daily_report_csv,
+    list_reports,
+    scan_and_populate_reports,
 )
 from src.revenue_sharing_models import (
     EventRevenueInput,
@@ -86,6 +91,8 @@ from src.types_custom import (
     QRValidateResponse,
     RecommendRequest,
     RecommendResponse,
+    ReportItem,
+    ReportsListResponse,
     RootResponse,
     SearchEventsRequest,
     SearchEventsResponse,
@@ -167,6 +174,13 @@ def on_startup() -> None:
     create_generated_reports_table()
     if not settings.SKIP_MODEL_TRAINING:
         model_pipeline = train_logistic_regression_pipeline()
+
+    # Ensure the generated_reports table exists and backfill from disk.
+    try:
+        create_generated_reports_table()
+        scan_and_populate_reports()
+    except Exception as exc:
+        logger.warning("Report metadata init failed (non-fatal): %s", exc)
 
     if settings.ENABLE_ETL_SCHEDULER and BackgroundScheduler is not None:
         etl_scheduler = BackgroundScheduler(timezone="UTC")
@@ -538,6 +552,52 @@ def generate_daily_report(payload: DailyReportRequest) -> Any:
     except Exception as exc:
         log_error("Daily report generation failed", {"error": str(exc)})
         return JSONResponse(status_code=500, content={"detail": f"Report generation failed: {exc}"})
+
+
+@app.get("/reports", response_model=ReportsListResponse)
+def get_reports_list(
+    _: str = Depends(require_admin_key),
+) -> ReportsListResponse:
+    """List up to 100 most recently generated reports (ADMIN)."""
+    log_info("Reports list requested")
+    try:
+        rows = list_reports()
+        items = [ReportItem(**row) for row in rows]
+        return ReportsListResponse(reports=items)
+    except Exception as exc:
+        log_error("Failed to list reports", {"error": str(exc)})
+        raise HTTPException(status_code=500, detail=f"Failed to list reports: {exc}")
+
+
+# Safe filename pattern — must match what generate_daily_report_csv produces
+_SAFE_REPORT_FILENAME = re.compile(r"^daily_report_\d{4}-\d{2}-\d{2}_\d{8}_\d{6}\.(csv|json)$")
+
+
+@app.get("/reports/download/{filename}")
+def download_report(
+    filename: str,
+    _: str = Depends(require_admin_key),
+) -> FileResponse:
+    """Stream a previously generated report file (ADMIN)."""
+    if not _SAFE_REPORT_FILENAME.match(filename):
+        raise HTTPException(status_code=400, detail="Invalid report filename")
+
+    from src.report_service import REPORTS_DIR
+    filepath = REPORTS_DIR / filename
+    # Resolve to an absolute path and confirm it stays inside REPORTS_DIR
+    try:
+        resolved = filepath.resolve()
+        reports_resolved = REPORTS_DIR.resolve()
+        resolved.relative_to(reports_resolved)
+    except (ValueError, OSError):
+        raise HTTPException(status_code=400, detail="Invalid report filename")
+
+    if not resolved.is_file():
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    media_type = "application/json" if filename.endswith(".json") else "text/csv"
+    log_info("Report download requested", {"filename": filename})
+    return FileResponse(path=str(resolved), media_type=media_type, filename=filename)
 
 
 # ---------------------------------------------------------------------------

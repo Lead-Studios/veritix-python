@@ -257,3 +257,18 @@ class HealthResponse(BaseModel):
     status: str
     service: str
     api_version: str
+
+
+class ReportItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    filename: str = Field(..., description="Report filename")
+    report_date: str = Field(..., description="Date the report covers (YYYY-MM-DD)")
+    format: str = Field(..., description="File format: csv or json")
+    size_bytes: int = Field(..., description="File size in bytes")
+    generated_at: str = Field(..., description="ISO timestamp when the report was generated")
+    download_url: str = Field(..., description="Relative URL to download the report")
+
+
+class ReportsListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reports: List[ReportItem] = Field(..., description="List of generated reports (up to 100)")
