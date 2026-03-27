@@ -116,6 +116,8 @@ class DailyReportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     target_date: Optional[date] = Field(None, description="Target date in YYYY-MM-DD format. Defaults to today.")
     output_format: Literal["csv", "json"] = Field("csv", description="Output format: 'csv' or 'json'")
+    event_id: Optional[str] = Field(None, description="Optional event ID to scope the report. Null means all events.")
+    force_regenerate: bool = Field(False, description="When True, skip cache and always generate a fresh report.")
 
 
 class DailyReportResponse(BaseModel):
@@ -125,6 +127,7 @@ class DailyReportResponse(BaseModel):
     report_path: Optional[str] = Field(None, description="Path to generated report file")
     report_date: str = Field(..., description="Date of the report")
     summary: Dict[str, Any] = Field(..., description="Summary statistics")
+    cache_hit: bool = Field(False, description="True when the response was served from a cached report")
     message: Optional[str] = Field(None, description="Additional information or error message")
 
 
