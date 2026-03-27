@@ -279,23 +279,42 @@ class AnalyticsService:
         finally:
             session.close()
     
-    def get_recent_scans(self, event_id: str, limit: int = 100) -> List[Dict[str, Any]]:
-        """Get recent scan records for an event."""
+    def get_recent_scans(self, event_id: str, from_ts: Optional[datetime] = None, to_ts: Optional[datetime] = None, page: int = 1, limit: int = 100) -> Dict[str, Any]:
+        """Get recent scan records for an event with date filtering and pagination."""
         try:
             session = get_session()
             
-            scans = session.query(TicketScan).filter(
-                TicketScan.event_id == event_id
-            ).order_by(desc(TicketScan.scan_timestamp)).limit(limit).all()
+            # Build base query
+            query = session.query(TicketScan).filter(TicketScan.event_id == event_id)
             
-            return [{
-                "id": scan.id,
-                "ticket_id": scan.ticket_id,
-                "scanner_id": scan.scanner_id,
-                "scan_timestamp": scan.scan_timestamp.isoformat(),
-                "is_valid": scan.is_valid,
-                "location": scan.location
-            } for scan in scans]
+            # Apply time filters
+            if from_ts:
+                query = query.filter(TicketScan.scan_timestamp >= from_ts)
+            if to_ts:
+                query = query.filter(TicketScan.scan_timestamp <= to_ts)
+            
+            # Get total count for pagination
+            total = query.count()
+            
+            # Apply pagination
+            offset = (page - 1) * limit
+            scans = query.order_by(desc(TicketScan.scan_timestamp)).offset(offset).limit(limit).all()
+            
+            return {
+                "data": [{
+                    "id": scan.id,
+                    "ticket_id": scan.ticket_id,
+                    "scanner_id": scan.scanner_id,
+                    "scan_timestamp": scan.scan_timestamp.isoformat(),
+                    "is_valid": scan.is_valid,
+                    "location": scan.location
+                } for scan in scans],
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "from_ts": from_ts.isoformat() if from_ts else None,
+                "to_ts": to_ts.isoformat() if to_ts else None
+            }
             
         except Exception as e:
             log_error("Failed to get recent scans", {
@@ -330,24 +349,43 @@ class AnalyticsService:
         finally:
             session.close()
     
-    def get_recent_transfers(self, event_id: str, limit: int = 100) -> List[Dict[str, Any]]:
-        """Get recent transfer records for an event."""
+    def get_recent_transfers(self, event_id: str, from_ts: Optional[datetime] = None, to_ts: Optional[datetime] = None, page: int = 1, limit: int = 100) -> Dict[str, Any]:
+        """Get recent transfer records for an event with date filtering and pagination."""
         try:
             session = get_session()
             
-            transfers = session.query(TicketTransfer).filter(
-                TicketTransfer.event_id == event_id
-            ).order_by(desc(TicketTransfer.transfer_timestamp)).limit(limit).all()
+            # Build base query
+            query = session.query(TicketTransfer).filter(TicketTransfer.event_id == event_id)
             
-            return [{
-                "id": transfer.id,
-                "ticket_id": transfer.ticket_id,
-                "from_user_id": transfer.from_user_id,
-                "to_user_id": transfer.to_user_id,
-                "transfer_timestamp": transfer.transfer_timestamp.isoformat(),
-                "is_successful": transfer.is_successful,
-                "transfer_reason": transfer.transfer_reason
-            } for transfer in transfers]
+            # Apply time filters
+            if from_ts:
+                query = query.filter(TicketTransfer.transfer_timestamp >= from_ts)
+            if to_ts:
+                query = query.filter(TicketTransfer.transfer_timestamp <= to_ts)
+            
+            # Get total count for pagination
+            total = query.count()
+            
+            # Apply pagination
+            offset = (page - 1) * limit
+            transfers = query.order_by(desc(TicketTransfer.transfer_timestamp)).offset(offset).limit(limit).all()
+            
+            return {
+                "data": [{
+                    "id": transfer.id,
+                    "ticket_id": transfer.ticket_id,
+                    "from_user_id": transfer.from_user_id,
+                    "to_user_id": transfer.to_user_id,
+                    "transfer_timestamp": transfer.transfer_timestamp.isoformat(),
+                    "is_successful": transfer.is_successful,
+                    "transfer_reason": transfer.transfer_reason
+                } for transfer in transfers],
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "from_ts": from_ts.isoformat() if from_ts else None,
+                "to_ts": to_ts.isoformat() if to_ts else None
+            }
             
         except Exception as e:
             log_error("Failed to get recent transfers", {
@@ -358,23 +396,42 @@ class AnalyticsService:
         finally:
             session.close()
     
-    def get_invalid_attempts(self, event_id: str, limit: int = 100) -> List[Dict[str, Any]]:
-        """Get recent invalid attempt records for an event."""
+    def get_invalid_attempts(self, event_id: str, from_ts: Optional[datetime] = None, to_ts: Optional[datetime] = None, page: int = 1, limit: int = 100) -> Dict[str, Any]:
+        """Get recent invalid attempt records for an event with date filtering and pagination."""
         try:
             session = get_session()
             
-            invalid_attempts = session.query(InvalidAttempt).filter(
-                InvalidAttempt.event_id == event_id
-            ).order_by(desc(InvalidAttempt.attempt_timestamp)).limit(limit).all()
+            # Build base query
+            query = session.query(InvalidAttempt).filter(InvalidAttempt.event_id == event_id)
             
-            return [{
-                "id": attempt.id,
-                "attempt_type": attempt.attempt_type,
-                "ticket_id": attempt.ticket_id,
-                "attempt_timestamp": attempt.attempt_timestamp.isoformat(),
-                "reason": attempt.reason,
-                "ip_address": attempt.ip_address
-            } for attempt in invalid_attempts]
+            # Apply time filters
+            if from_ts:
+                query = query.filter(InvalidAttempt.attempt_timestamp >= from_ts)
+            if to_ts:
+                query = query.filter(InvalidAttempt.attempt_timestamp <= to_ts)
+            
+            # Get total count for pagination
+            total = query.count()
+            
+            # Apply pagination
+            offset = (page - 1) * limit
+            invalid_attempts = query.order_by(desc(InvalidAttempt.attempt_timestamp)).offset(offset).limit(limit).all()
+            
+            return {
+                "data": [{
+                    "id": attempt.id,
+                    "attempt_type": attempt.attempt_type,
+                    "ticket_id": attempt.ticket_id,
+                    "attempt_timestamp": attempt.attempt_timestamp.isoformat(),
+                    "reason": attempt.reason,
+                    "ip_address": attempt.ip_address
+                } for attempt in invalid_attempts],
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "from_ts": from_ts.isoformat() if from_ts else None,
+                "to_ts": to_ts.isoformat() if to_ts else None
+            }
             
         except Exception as e:
             log_error("Failed to get invalid attempts", {
