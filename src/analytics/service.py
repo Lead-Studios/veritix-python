@@ -40,6 +40,7 @@ class AnalyticsService:
         additional_metadata: Optional[Dict[str, Any]] = None
     ):
         """Log a ticket scan event."""
+        session = None
         try:
             session = get_session()
             scan_record = TicketScan(
@@ -71,10 +72,12 @@ class AnalyticsService:
                 "event_id": event_id,
                 "error": str(e)
             })
-            session.rollback()
+            if session:
+                session.rollback()
             raise
         finally:
-            session.close()
+            if session:
+                session.close()
     
     def log_ticket_transfer(
         self,
@@ -89,6 +92,7 @@ class AnalyticsService:
         additional_metadata: Optional[Dict[str, Any]] = None
     ):
         """Log a ticket transfer event."""
+        session = None
         try:
             session = get_session()
             transfer_record = TicketTransfer(
@@ -125,10 +129,12 @@ class AnalyticsService:
                 "to_user_id": to_user_id,
                 "error": str(e)
             })
-            session.rollback()
+            if session:
+                session.rollback()
             raise
         finally:
-            session.close()
+            if session:
+                session.close()
     
     def log_invalid_attempt(
         self,
@@ -141,6 +147,7 @@ class AnalyticsService:
         additional_metadata: Optional[Dict[str, Any]] = None
     ):
         """Log an invalid attempt."""
+        session = None
         try:
             session = get_session()
             invalid_record = InvalidAttempt(
@@ -174,13 +181,16 @@ class AnalyticsService:
                 "reason": reason,
                 "error": str(e)
             })
-            session.rollback()
+            if session:
+                session.rollback()
             raise
         finally:
-            session.close()
+            if session:
+                session.close()
     
     def get_stats_for_event(self, event_id: str) -> Dict[str, int]:
         """Get analytics stats for a specific event."""
+        session = None
         try:
             session = get_session()
             
@@ -252,10 +262,12 @@ class AnalyticsService:
             })
             raise
         finally:
-            session.close()
+            if session:
+                session.close()
     
     def get_stats_for_all_events(self) -> Dict[str, Dict[str, int]]:
         """Get analytics stats for all events."""
+        session = None
         try:
             session = get_session()
             
@@ -277,10 +289,12 @@ class AnalyticsService:
             log_error("Failed to get stats for all events", {"error": str(e)})
             raise
         finally:
-            session.close()
+            if session:
+                session.close()
     
     def get_recent_scans(self, event_id: str, from_ts: Optional[datetime] = None, to_ts: Optional[datetime] = None, page: int = 1, limit: int = 100) -> Dict[str, Any]:
         """Get recent scan records for an event with date filtering and pagination."""
+        session = None
         try:
             session = get_session()
             
@@ -323,10 +337,12 @@ class AnalyticsService:
             })
             raise
         finally:
-            session.close()
+            if session:
+                session.close()
 
     def get_scans_by_ticket_id(self, ticket_id: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Get scan records for a specific ticket identifier."""
+        session = None
         try:
             session = get_session()
             scans = session.query(TicketScan).filter(
@@ -347,10 +363,12 @@ class AnalyticsService:
             })
             raise
         finally:
-            session.close()
+            if session:
+                session.close()
     
     def get_recent_transfers(self, event_id: str, from_ts: Optional[datetime] = None, to_ts: Optional[datetime] = None, page: int = 1, limit: int = 100) -> Dict[str, Any]:
         """Get recent transfer records for an event with date filtering and pagination."""
+        session = None
         try:
             session = get_session()
             
@@ -394,10 +412,12 @@ class AnalyticsService:
             })
             raise
         finally:
-            session.close()
+            if session:
+                session.close()
     
     def get_invalid_attempts(self, event_id: str, from_ts: Optional[datetime] = None, to_ts: Optional[datetime] = None, page: int = 1, limit: int = 100) -> Dict[str, Any]:
         """Get recent invalid attempt records for an event with date filtering and pagination."""
+        session = None
         try:
             session = get_session()
             
@@ -440,7 +460,8 @@ class AnalyticsService:
             })
             raise
         finally:
-            session.close()
+            if session:
+                session.close()
     
     def get_trending_events(self, limit: int = 10, hours: int = 24) -> List[Dict[str, Any]]:
         """Return top events by scan velocity over the last N hours.
