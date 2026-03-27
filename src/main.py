@@ -197,11 +197,14 @@ def on_startup() -> None:
 @app.on_event("shutdown")
 def on_shutdown() -> None:
     global etl_scheduler
+    log_info("Shutdown initiated: waiting for in-flight requests and scheduler...")
     if etl_scheduler is not None:
         try:
-            etl_scheduler.shutdown(wait=False)
-        except Exception:
-            pass
+            # wait=True ensures running jobs complete before scheduler stops
+            etl_scheduler.shutdown(wait=True)
+            log_info("ETL scheduler shut down successfully.")
+        except Exception as exc:
+            log_error("Error during scheduler shutdown", {"error": str(exc)})
 
 
 # ---------------------------------------------------------------------------

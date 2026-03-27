@@ -4,11 +4,6 @@ from typing import Optional
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from pydantic_settings import BaseSettings
-
-class Settings(BaseSettings):
-   
-
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -38,6 +33,7 @@ class Settings(BaseSettings):
     POOL_SIZE: int = 5
     POOL_MAX_OVERFLOW: int = 10
     REPORT_CACHE_MINUTES: int = 60
+    SHUTDOWN_TIMEOUT_SECONDS: int = 30
 
     SERVICE_API_KEY: str = "default_service_secret_change_me"
     ADMIN_API_KEY: str = "default_admin_secret_change_me"
