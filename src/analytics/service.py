@@ -305,6 +305,30 @@ class AnalyticsService:
             raise
         finally:
             session.close()
+
+    def get_scans_by_ticket_id(self, ticket_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get scan records for a specific ticket identifier."""
+        try:
+            session = get_session()
+            scans = session.query(TicketScan).filter(
+                TicketScan.ticket_id == ticket_id
+            ).order_by(desc(TicketScan.scan_timestamp)).limit(limit).all()
+            return [{
+                "id": scan.id,
+                "ticket_id": scan.ticket_id,
+                "event_id": scan.event_id,
+                "scan_timestamp": scan.scan_timestamp.isoformat(),
+                "is_valid": scan.is_valid,
+                "location": scan.location
+            } for scan in scans]
+        except Exception as e:
+            log_error("Failed to get scans by ticket_id", {
+                "ticket_id": ticket_id,
+                "error": str(e)
+            })
+            raise
+        finally:
+            session.close()
     
     def get_recent_transfers(self, event_id: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Get recent transfer records for an event."""

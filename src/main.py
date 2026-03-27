@@ -265,7 +265,7 @@ def generate_qr(payload: TicketRequest) -> Any:
     encoded = base64.b64encode(buffer.read()).decode("utf-8")
     QR_GENERATIONS_TOTAL.inc()
     log_info("QR code generated successfully")
-    return QRResponse(qr_base64=encoded)
+    return QRResponse(qr_base64=encoded, token=json.dumps(data, separators=(",", ":")))
 
 
 @app.post("/validate-qr", response_model=QRValidateResponse)
@@ -283,14 +283,29 @@ def validate_qr(payload: QRValidateRequest) -> QRValidateResponse:
         if hmac.compare_digest(provided_sig, expected_sig):
             QR_VALIDATIONS_TOTAL.labels(result="valid").inc()
             log_info("QR validation successful", {"ticket_id": unsigned.get("ticket_id")})
+            analytics_service.log_ticket_scan(
+                ticket_id=str(unsigned.get("ticket_id") or "unknown"),
+                event_id=str(unsigned.get("event") or "unknown"),
+                is_valid=True
+            )
             return QRValidateResponse(isValid=True, metadata=unsigned)
         log_warning("Invalid QR signature", {"metadata": unsigned})
         QR_VALIDATIONS_TOTAL.labels(result="invalid").inc()
+        analytics_service.log_ticket_scan(
+            ticket_id=str(unsigned.get("ticket_id") or "unknown"),
+            event_id=str(unsigned.get("event") or "unknown"),
+            is_valid=False
+        )
         return QRValidateResponse(isValid=False)
     except Exception as exc:
         log_warning("Invalid QR validation attempt", {"error": str(exc)})
         QR_VALIDATIONS_TOTAL.labels(result="error").inc()
         return QRValidateResponse(isValid=False)
+
+@app.get("/qr/scan-log/{ticket_id}")
+def get_qr_scan_log(ticket_id: str) -> List[Dict[str, Any]]:
+    """Returns the scan audit log for a specific ticket."""
+    return analytics_service.get_scans_by_ticket_id(ticket_id)
 
 
 # ---------------------------------------------------------------------------
