@@ -42,9 +42,6 @@ class Settings(BaseSettings):
         "owerri,warri,uyo,akure,ilorin,sokoto,zaria,maiduguri,asaba,nnewi"
     )
 
-    class Config:
-        env_file = ".env"
-
 settings = Settings()
 
 
