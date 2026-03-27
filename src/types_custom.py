@@ -52,6 +52,7 @@ class TicketRequest(BaseModel):
 class QRResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     qr_base64: str
+    token: str
 
 
 class QRValidateRequest(BaseModel):
