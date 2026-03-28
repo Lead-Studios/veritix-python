@@ -599,6 +599,7 @@ class AnalyticsService:
                                increment_transfer: bool = False, is_successful: bool = True,
                                increment_invalid: bool = False):
         """Internal method to update analytics stats."""
+        session = None
         try:
             session = get_session()
             
@@ -645,9 +646,11 @@ class AnalyticsService:
                 "event_id": event_id,
                 "error": str(e)
             })
-            session.rollback()
+            if session:
+                session.rollback()
         finally:
-            session.close()
+            if session:
+                session.close()
 
 
 # Global instance

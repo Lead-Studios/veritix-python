@@ -10,13 +10,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from src.config import settings
+from src.config import get_settings
 from src.main import app
 from src.report_service import REPORTS_DIR
 
 client = TestClient(app)
 
-ADMIN_HEADERS = {"Authorization": f"Bearer {settings.ADMIN_API_KEY}"}
+ADMIN_HEADERS = {"Authorization": f"Bearer {get_settings().ADMIN_API_KEY}"}
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures

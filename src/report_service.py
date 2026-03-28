@@ -276,19 +276,39 @@ def _query_event_names() -> Dict[str, str]:
 
 
 def _query_transfer_stats(target_date: Optional[date] = None) -> Dict[str, int]:
-    """Query transfer statistics.
+    engine = _pg_engine()
+    if engine is None:
+        logger.warning("DATABASE_URL not set; cannot query transfer stats")
+        return {"total_transfers": 0}
 
-    Returns a placeholder dict; a real implementation would query a transfers table.
-    """
-    return {"total_transfers": 0}
+    if target_date is None:
+        target_date = date.today()
+
+    with engine.connect() as conn:
+        result = conn.execute(
+            text("SELECT COUNT(*) FROM ticket_transfers WHERE transfer_timestamp::date = :target_date"),
+            {"target_date": target_date},
+        )
+        row = result.fetchone()
+    return {"total_transfers": int(row[0]) if row else 0}
 
 
 def _query_invalid_scans(target_date: Optional[date] = None) -> Dict[str, int]:
-    """Query invalid scan statistics.
+    engine = _pg_engine()
+    if engine is None:
+        logger.warning("DATABASE_URL not set; cannot query invalid scan stats")
+        return {"invalid_scans": 0}
 
-    Returns a placeholder dict; a real implementation would query a scans table.
-    """
-    return {"invalid_scans": 0}
+    if target_date is None:
+        target_date = date.today()
+
+    with engine.connect() as conn:
+        result = conn.execute(
+            text("SELECT COUNT(*) FROM invalid_attempts WHERE attempt_timestamp::date = :target_date"),
+            {"target_date": target_date},
+        )
+        row = result.fetchone()
+    return {"invalid_scans": int(row[0]) if row else 0}
 
 
 def generate_daily_report_csv(

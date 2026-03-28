@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Optional
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -35,15 +35,22 @@ class Settings(BaseSettings):
     REPORT_CACHE_MINUTES: int = 60
     SHUTDOWN_TIMEOUT_SECONDS: int = 30
 
-    SERVICE_API_KEY: str = "default_service_secret_change_me"
-    ADMIN_API_KEY: str = "default_admin_secret_change_me"
+    SERVICE_API_KEY: str = Field(...)
+    ADMIN_API_KEY: str = Field(...)
+
+    @field_validator("SERVICE_API_KEY", "ADMIN_API_KEY")
+    @classmethod
+    def validate_api_keys(cls, v: str, info) -> str:
+        forbidden = {"default_service_secret_change_me", "default_admin_secret_change_me"}
+        if v in forbidden or len(v) < 32:
+            raise ValueError(
+                f"{info.field_name} must be at least 32 characters and must not use a default value"
+            )
+        return v
     KNOWN_LOCATIONS: str = (
         "lagos,abuja,port harcourt,kano,ibadan,benin,kaduna,jos,enugu,calabar,"
         "owerri,warri,uyo,akure,ilorin,sokoto,zaria,maiduguri,asaba,nnewi"
     )
-
-settings = Settings()
-
 
 @lru_cache
 def get_settings() -> Settings:

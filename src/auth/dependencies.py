@@ -3,7 +3,7 @@ import secrets
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from src.config import settings
+from src.config import get_settings
 
 # auto_error=False allows us to manually raise 401 when header is absent.
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -19,7 +19,7 @@ def require_service_key(
             detail="Missing or invalid authentication token",
         )
 
-    if not secrets.compare_digest(credentials.credentials, settings.SERVICE_API_KEY):
+    if not secrets.compare_digest(credentials.credentials, get_settings().SERVICE_API_KEY):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid service token",
@@ -38,7 +38,7 @@ def require_admin_key(
             detail="Missing or invalid authentication token",
         )
 
-    if not secrets.compare_digest(credentials.credentials, settings.ADMIN_API_KEY):
+    if not secrets.compare_digest(credentials.credentials, get_settings().ADMIN_API_KEY):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid admin token",
