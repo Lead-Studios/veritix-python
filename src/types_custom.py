@@ -216,6 +216,17 @@ class ChatUserConversationsResponse(BaseModel):
     count: int
 
 
+class ChatTypingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    sender_id: str = Field(..., min_length=1)
+    is_typing: bool
+
+
+class ChatTypingResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["success"]
+
+
 class AnalyticsStatsQuery(BaseModel):
     model_config = ConfigDict(extra="forbid")
     event_id: Optional[str] = None

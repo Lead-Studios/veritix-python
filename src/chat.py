@@ -2,7 +2,7 @@
 import asyncio
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Literal, Optional, Set, Union
 
 from fastapi import WebSocket
 from pydantic import BaseModel
@@ -25,6 +25,24 @@ class ChatMessage(BaseModel):
     timestamp: datetime
     conversation_id: str
     metadata: Optional[Dict[str, Any]] = None
+
+
+class TypingEvent(BaseModel):
+    """Ephemeral event indicating a participant is typing."""
+
+    type: Literal["typing"] = "typing"
+    sender_id: str
+    conversation_id: str
+    is_typing: bool
+
+
+class ReadReceiptEvent(BaseModel):
+    """Ephemeral event indicating messages have been read."""
+
+    type: Literal["read_receipt"] = "read_receipt"
+    sender_id: str
+    conversation_id: str
+    last_read_message_id: str
 
 
 class EscalationEvent(BaseModel):
@@ -116,6 +134,33 @@ class ChatManager:
                     for ws in disconnected:
                         if ws in self.active_connections.get(message.conversation_id, []):
                             self.active_connections[message.conversation_id].remove(ws)
+
+        return True
+
+    async def broadcast_event(
+        self, event: Union[TypingEvent, ReadReceiptEvent]
+    ) -> bool:
+        """Broadcast an ephemeral event to all participants without persisting it."""
+        conversation_id = event.conversation_id
+        if conversation_id not in self.active_connections:
+            return True
+
+        disconnected: List[WebSocket] = []
+        for websocket in self.active_connections[conversation_id]:
+            try:
+                await websocket.send_text(event.model_dump_json())
+            except Exception as exc:
+                log_warning(
+                    "Failed to send event to websocket",
+                    {"conversation_id": conversation_id, "error": str(exc)},
+                )
+                disconnected.append(websocket)
+
+        if disconnected:
+            async with self._lock:
+                for ws in disconnected:
+                    if ws in self.active_connections.get(conversation_id, []):
+                        self.active_connections[conversation_id].remove(ws)
 
         return True
 
