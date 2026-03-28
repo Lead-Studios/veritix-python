@@ -17,7 +17,7 @@ from slowapi.errors import RateLimitExceeded
 from src.auth.dependencies import require_admin_key, require_service_key
 
 from src.analytics.service import analytics_service
-from src.chat import ChatMessage, EscalationEvent, chat_manager
+from src.chat import ChatMessage, EscalationEvent, ReadReceiptEvent, TypingEvent, chat_manager
 from src.config import get_settings
 from src.core.ratelimit import limiter
 from src.etl import diff_etl_output, extract_events_and_sales, run_etl_once, transform_summary
@@ -79,6 +79,8 @@ from src.types_custom import (
     ChatMessageHistoryResponse,
     ChatMessageSendRequest,
     ChatMessageSendResponse,
+    ChatTypingRequest,
+    ChatTypingResponse,
     ChatUserConversationsResponse,
     DailyReportRequest,
     DailyReportResponse,
@@ -747,16 +749,32 @@ async def websocket_chat(
             data = await websocket.receive_text()
             try:
                 message_data: Dict[str, Any] = json.loads(data)
-                message = ChatMessage(
-                    id=str(uuid.uuid4()),
-                    sender_id=user_id,
-                    sender_type=message_data.get("sender_type", "user"),
-                    content=message_data["content"],
-                    timestamp=datetime.utcnow(),
-                    conversation_id=conversation_id,
-                    metadata=message_data.get("metadata", {}),
-                )
-                await chat_manager.send_message(message)
+                msg_type = message_data.get("type")
+                if msg_type == "typing":
+                    event = TypingEvent(
+                        sender_id=user_id,
+                        conversation_id=conversation_id,
+                        is_typing=message_data.get("is_typing", False),
+                    )
+                    await chat_manager.broadcast_event(event)
+                elif msg_type == "read_receipt":
+                    event = ReadReceiptEvent(
+                        sender_id=user_id,
+                        conversation_id=conversation_id,
+                        last_read_message_id=message_data["last_read_message_id"],
+                    )
+                    await chat_manager.broadcast_event(event)
+                else:
+                    message = ChatMessage(
+                        id=str(uuid.uuid4()),
+                        sender_id=user_id,
+                        sender_type=message_data.get("sender_type", "user"),
+                        content=message_data["content"],
+                        timestamp=datetime.utcnow(),
+                        conversation_id=conversation_id,
+                        metadata=message_data.get("metadata", {}),
+                    )
+                    await chat_manager.send_message(message)
             except json.JSONDecodeError:
                 logger.warning("Invalid JSON received from client")
             except KeyError as exc:
@@ -799,6 +817,24 @@ async def send_message(
     except Exception as exc:
         logger.error("Error sending message: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to send message")
+
+
+@app.post("/chat/{conversation_id}/typing", response_model=ChatTypingResponse)
+async def send_typing_indicator(
+    conversation_id: str, body: ChatTypingRequest
+) -> ChatTypingResponse:
+    """Broadcast a typing indicator to all participants in a conversation (not persisted)."""
+    try:
+        event = TypingEvent(
+            sender_id=body.sender_id,
+            conversation_id=conversation_id,
+            is_typing=body.is_typing,
+        )
+        await chat_manager.broadcast_event(event)
+        return ChatTypingResponse(status="success")
+    except Exception as exc:
+        logger.error("Error sending typing indicator: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to send typing indicator")
 
 
 @app.get("/chat/{conversation_id}/history", response_model=ChatMessageHistoryResponse)

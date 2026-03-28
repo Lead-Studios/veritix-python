@@ -6,7 +6,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock, Mock, patch
 from fastapi.testclient import TestClient
 from src.main import app
-from src.chat import ChatManager, ChatMessage, EscalationEvent
+from src.chat import ChatManager, ChatMessage, EscalationEvent, ReadReceiptEvent, TypingEvent
 
 
 @pytest.fixture
@@ -345,3 +345,191 @@ async def test_cleanup_on_websocket_disconnect(chat_manager):
     
     # Check cleanup
     assert len(chat_manager.active_connections.get(conversation_id, [])) == 0
+
+
+# ---------------------------------------------------------------------------
+# Typing indicators and read receipts
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_typing_event_broadcast_not_persisted(chat_manager):
+    """Typing events are broadcast to all participants but not stored in message history."""
+    conversation_id = "typing_test_conv"
+
+    websockets = [AsyncMock() for _ in range(2)]
+    for i, ws in enumerate(websockets):
+        await chat_manager.connect(ws, conversation_id, f"user_{i}")
+
+    event = TypingEvent(
+        sender_id="user_0",
+        conversation_id=conversation_id,
+        is_typing=True,
+    )
+    await chat_manager.broadcast_event(event)
+
+    # All participants should receive the event
+    for ws in websockets:
+        ws.send_text.assert_called()
+
+    # Nothing should be stored in message history
+    assert chat_manager.message_history.get(conversation_id, []) == []
+
+
+@pytest.mark.asyncio
+async def test_typing_event_stop_broadcast_not_persisted(chat_manager):
+    """is_typing=False is broadcast and not persisted."""
+    conversation_id = "typing_stop_conv"
+
+    ws = AsyncMock()
+    await chat_manager.connect(ws, conversation_id, "user_1")
+
+    event = TypingEvent(
+        sender_id="user_1",
+        conversation_id=conversation_id,
+        is_typing=False,
+    )
+    await chat_manager.broadcast_event(event)
+
+    ws.send_text.assert_called_once()
+    assert chat_manager.message_history.get(conversation_id, []) == []
+
+
+@pytest.mark.asyncio
+async def test_read_receipt_broadcast_not_persisted(chat_manager):
+    """Read receipt events are broadcast to all participants but not stored in message history."""
+    conversation_id = "receipt_test_conv"
+
+    websockets = [AsyncMock() for _ in range(3)]
+    for i, ws in enumerate(websockets):
+        await chat_manager.connect(ws, conversation_id, f"user_{i}")
+
+    event = ReadReceiptEvent(
+        sender_id="user_0",
+        conversation_id=conversation_id,
+        last_read_message_id="msg_42",
+    )
+    await chat_manager.broadcast_event(event)
+
+    for ws in websockets:
+        ws.send_text.assert_called()
+
+    assert chat_manager.message_history.get(conversation_id, []) == []
+
+
+@pytest.mark.asyncio
+async def test_broadcast_event_no_active_connections(chat_manager):
+    """broadcast_event returns True when there are no active connections."""
+    event = TypingEvent(
+        sender_id="user_x",
+        conversation_id="empty_conv",
+        is_typing=True,
+    )
+    result = await chat_manager.broadcast_event(event)
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_typing_event_payload_shape(chat_manager):
+    """The JSON sent for a typing event contains the correct fields."""
+    conversation_id = "shape_test_conv"
+    ws = AsyncMock()
+    await chat_manager.connect(ws, conversation_id, "user_1")
+
+    event = TypingEvent(
+        sender_id="user_1",
+        conversation_id=conversation_id,
+        is_typing=True,
+    )
+    await chat_manager.broadcast_event(event)
+
+    ws.send_text.assert_called_once()
+    payload = json.loads(ws.send_text.call_args[0][0])
+    assert payload["type"] == "typing"
+    assert payload["sender_id"] == "user_1"
+    assert payload["conversation_id"] == conversation_id
+    assert payload["is_typing"] is True
+
+
+@pytest.mark.asyncio
+async def test_read_receipt_payload_shape(chat_manager):
+    """The JSON sent for a read receipt event contains the correct fields."""
+    conversation_id = "receipt_shape_conv"
+    ws = AsyncMock()
+    await chat_manager.connect(ws, conversation_id, "user_2")
+
+    event = ReadReceiptEvent(
+        sender_id="user_2",
+        conversation_id=conversation_id,
+        last_read_message_id="msg_99",
+    )
+    await chat_manager.broadcast_event(event)
+
+    ws.send_text.assert_called_once()
+    payload = json.loads(ws.send_text.call_args[0][0])
+    assert payload["type"] == "read_receipt"
+    assert payload["sender_id"] == "user_2"
+    assert payload["last_read_message_id"] == "msg_99"
+
+
+@pytest.mark.asyncio
+async def test_regular_message_still_persisted_after_typing(chat_manager):
+    """Regular chat messages are still persisted even after typing events are broadcast."""
+    conversation_id = "mixed_conv"
+    ws = AsyncMock()
+    await chat_manager.connect(ws, conversation_id, "user_1")
+
+    # Broadcast a typing event (should not persist)
+    typing_event = TypingEvent(
+        sender_id="user_1",
+        conversation_id=conversation_id,
+        is_typing=True,
+    )
+    await chat_manager.broadcast_event(typing_event)
+
+    # Send a real message (should persist)
+    message = ChatMessage(
+        id="msg_real",
+        sender_id="user_1",
+        sender_type="user",
+        content="Here is my message",
+        timestamp=datetime.utcnow(),
+        conversation_id=conversation_id,
+    )
+    await chat_manager.send_message(message)
+
+    history = chat_manager.get_message_history(conversation_id)
+    assert len(history) == 1
+    assert history[0].id == "msg_real"
+
+
+# ---------------------------------------------------------------------------
+# HTTP typing endpoint
+# ---------------------------------------------------------------------------
+
+def test_typing_endpoint_broadcasts_and_returns_success(client):
+    """POST /chat/{conversation_id}/typing returns 200 with status=success."""
+    response = client.post(
+        "/chat/conv_typing_http/typing",
+        json={"sender_id": "user_1", "is_typing": True},
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+
+
+def test_typing_endpoint_is_typing_false(client):
+    """POST /chat/{conversation_id}/typing with is_typing=False returns success."""
+    response = client.post(
+        "/chat/conv_typing_stop/typing",
+        json={"sender_id": "user_2", "is_typing": False},
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+
+
+def test_typing_endpoint_missing_sender_id(client):
+    """POST /chat/{conversation_id}/typing with missing sender_id returns 422."""
+    response = client.post(
+        "/chat/conv_typing_bad/typing",
+        json={"is_typing": True},
+    )
+    assert response.status_code == 422
