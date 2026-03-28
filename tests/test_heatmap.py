@@ -6,12 +6,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.analytics.service import AnalyticsService
-from src.config import settings
+from src.config import get_settings
 from src.main import app
 
 client = TestClient(app)
 
-SERVICE_HEADERS = {"Authorization": f"Bearer {settings.SERVICE_API_KEY}"}
+SERVICE_HEADERS = {"Authorization": f"Bearer {get_settings().SERVICE_API_KEY}"}
 
 
 # ---------------------------------------------------------------------------
