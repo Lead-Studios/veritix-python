@@ -1,9 +1,10 @@
 """Tests for revenue sharing service."""
 import pytest
 from datetime import datetime
+from fastapi import HTTPException
 from src.revenue_sharing_service import RevenueSharingService
 from src.revenue_sharing_models import (
-    EventRevenueInput, Stakeholder, RevenueRule, 
+    EventRevenueInput, Stakeholder, RevenueRule,
     RevenueShareConfig
 )
 
@@ -324,6 +325,66 @@ def test_revenue_share_config_model():
     assert config.processing_fixed_fee == 0.25
     assert config.minimum_payout_amount == 20.0
     assert config.maximum_payout_percentage == 95.0
+
+
+class TestRevenuePercentageGuard:
+    """Tests for the >100% percentage guard (issue #127)."""
+
+    def _make_rules(self, *percentages):
+        return [
+            RevenueRule(
+                id=f"rule_{i}",
+                name=f"Rule {i}",
+                description="test",
+                condition="test",
+                priority=i,
+                percentage=p,
+            )
+            for i, p in enumerate(percentages)
+        ]
+
+    def test_exactly_100_percent_is_allowed(self):
+        service = RevenueSharingService()
+        rules = self._make_rules(60.0, 30.0, 10.0)  # sum = 100%
+        input_data = EventRevenueInput(
+            event_id="evt_exact_100",
+            total_sales=1000.0,
+            ticket_count=10,
+            custom_rules=rules,
+        )
+        result = service.calculate_revenue_shares(input_data)
+        assert result.event_id == "evt_exact_100"
+
+    def test_over_100_percent_raises_400(self):
+        service = RevenueSharingService()
+        rules = self._make_rules(70.0, 40.0)  # sum = 110%
+        input_data = EventRevenueInput(
+            event_id="evt_over_100",
+            total_sales=1000.0,
+            ticket_count=10,
+            custom_rules=rules,
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            service.calculate_revenue_shares(input_data)
+        assert exc_info.value.status_code == 400
+        assert "110.00%" in exc_info.value.detail
+
+    def test_default_config_sum_under_100(self):
+        """Default stakeholders (80+5+10=95%) should not raise."""
+        service = RevenueSharingService()
+        input_data = EventRevenueInput(
+            event_id="evt_default",
+            total_sales=5000.0,
+            ticket_count=50,
+        )
+        result = service.calculate_revenue_shares(input_data)
+        default_pct = (
+            service.config.default_organizer_share
+            + service.config.default_platform_fee
+            + service.config.default_venue_fee
+        )
+        assert default_pct <= 100.0
+        assert result.event_id == "evt_default"
 
 
 if __name__ == '__main__':

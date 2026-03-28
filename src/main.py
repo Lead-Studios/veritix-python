@@ -42,7 +42,8 @@ from src.logging_config import (
     log_warning,
     setup_logging,
 )
-from src.mock_events import get_mock_events
+from src.event_store import get_events_from_db
+from src.mock_events import get_mock_events  # kept for test usage only
 from src.report_service import (
     _query_daily_sales,
     _query_invalid_scans,
@@ -531,7 +532,7 @@ def search_events(payload: SearchEventsRequest) -> Any:
     """Search for events using natural language keyword extraction."""
     try:
         keywords = extract_keywords(payload.query)
-        all_events = get_mock_events()
+        all_events = get_events_from_db() or get_mock_events()
         matching_events = filter_events_by_keywords(
             all_events,
             keywords,
@@ -570,8 +571,6 @@ def recommend_events(payload: RecommendRequest) -> RecommendResponse:
     user_id = payload.user_id
     # Prefer DB-sourced history; fall back to mock data when DB is unavailable.
     user_events_dict = get_user_events_from_db()
-    if not user_events_dict:
-        user_events_dict = mock_user_events
     similarity_matrix = build_item_similarity_matrix(user_events_dict)
     recommended = get_item_recommendations(
         user_id=user_id,
