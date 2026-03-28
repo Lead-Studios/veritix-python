@@ -227,6 +227,38 @@ class ChatTypingResponse(BaseModel):
     status: Literal["success"]
 
 
+class ChatAssignRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    agent_id: str = Field(..., min_length=1)
+
+
+class ChatAssignResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["success"]
+    conversation_id: str
+    agent_id: str
+
+
+class ChatQueueItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    conversation_id: str
+    escalated_at: datetime
+    reason: str
+
+
+class ChatQueueResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    queue: List[ChatQueueItem]
+    count: int
+
+
+class ChatConversationStatusResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    conversation_id: str
+    status: Literal["open", "escalated", "assigned", "resolved"]
+    assigned_agent_id: Optional[str] = None
+
+
 class AnalyticsStatsQuery(BaseModel):
     model_config = ConfigDict(extra="forbid")
     event_id: Optional[str] = None

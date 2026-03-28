@@ -72,6 +72,9 @@ from src.types_custom import (
     AnalyticsTransfersResponse,
     HeatmapQuery,
     HeatmapResponse,
+    ChatAssignRequest,
+    ChatAssignResponse,
+    ChatConversationStatusResponse,
     ChatEscalateRequest,
     ChatEscalateResponse,
     ChatEscalationsResponse,
@@ -79,6 +82,8 @@ from src.types_custom import (
     ChatMessageHistoryResponse,
     ChatMessageSendRequest,
     ChatMessageSendResponse,
+    ChatQueueItem,
+    ChatQueueResponse,
     ChatTypingRequest,
     ChatTypingResponse,
     ChatUserConversationsResponse,
@@ -911,6 +916,75 @@ async def get_user_conversations(user_id: str) -> ChatUserConversationsResponse:
     except Exception as exc:
         logger.error("Error getting user conversations: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to get user conversations")
+
+
+@app.get("/chat/queue", response_model=ChatQueueResponse)
+async def get_escalation_queue(
+    _: str = Depends(require_admin_key),
+) -> ChatQueueResponse:
+    """Return all unassigned escalated conversations ordered by escalation time (oldest first)."""
+    try:
+        raw_queue = chat_manager.get_unassigned_queue()
+        queue = [
+            ChatQueueItem(
+                conversation_id=item["conversation_id"],
+                escalated_at=item["escalated_at"],
+                reason=item["reason"],
+            )
+            for item in raw_queue
+        ]
+        return ChatQueueResponse(queue=queue, count=len(queue))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error getting escalation queue: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to get escalation queue")
+
+
+@app.post("/chat/{conversation_id}/assign", response_model=ChatAssignResponse)
+async def assign_conversation(
+    conversation_id: str,
+    body: ChatAssignRequest,
+    _: str = Depends(require_admin_key),
+) -> ChatAssignResponse:
+    """Assign an escalated conversation to a support agent."""
+    try:
+        status_info = chat_manager.get_conversation_status(conversation_id)
+        if status_info["status"] not in ("escalated", "assigned"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Conversation is not escalated (current status: {status_info['status']})",
+            )
+        await chat_manager.assign_conversation(conversation_id, body.agent_id)
+        return ChatAssignResponse(
+            status="success",
+            conversation_id=conversation_id,
+            agent_id=body.agent_id,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error assigning conversation: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to assign conversation")
+
+
+@app.get("/chat/{conversation_id}/status", response_model=ChatConversationStatusResponse)
+async def get_conversation_status(
+    conversation_id: str,
+) -> ChatConversationStatusResponse:
+    """Get the current status and agent assignment for a conversation."""
+    try:
+        info = chat_manager.get_conversation_status(conversation_id)
+        return ChatConversationStatusResponse(
+            conversation_id=info["conversation_id"],
+            status=info["status"],
+            assigned_agent_id=info["assigned_agent_id"],
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error getting conversation status: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to get conversation status")
 
 
 # ---------------------------------------------------------------------------

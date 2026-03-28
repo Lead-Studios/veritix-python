@@ -63,6 +63,10 @@ class ChatManager:
         self.message_history: Dict[str, List[ChatMessage]] = {}
         self.escalations: List[EscalationEvent] = []
         self.user_connections: Dict[str, Set[str]] = {}
+        # status: "open" | "escalated" | "assigned" | "resolved"
+        self.conversation_statuses: Dict[str, str] = {}
+        self.conversation_assignments: Dict[str, Optional[str]] = {}
+        self.conversation_escalated_at: Dict[str, datetime] = {}
         self._lock = asyncio.Lock()
 
     async def connect(
@@ -192,6 +196,9 @@ class ChatManager:
 
         async with self._lock:
             self.escalations.append(escalation)
+            self.conversation_statuses[conversation_id] = "escalated"
+            self.conversation_assignments[conversation_id] = None
+            self.conversation_escalated_at[conversation_id] = escalation.timestamp
 
         if conversation_id in self.active_connections:
             escalation_notification = {
@@ -224,6 +231,77 @@ class ChatManager:
             {"conversation_id": conversation_id, "reason": reason},
         )
         return escalation
+
+    async def assign_conversation(
+        self, conversation_id: str, agent_id: str
+    ) -> None:
+        """Assign an escalated conversation to a support agent."""
+        async with self._lock:
+            self.conversation_statuses[conversation_id] = "assigned"
+            self.conversation_assignments[conversation_id] = agent_id
+
+        notification = {
+            "type": "assignment",
+            "conversation_id": conversation_id,
+            "agent_id": agent_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            "message": "This conversation has been assigned to a support agent.",
+        }
+
+        if conversation_id in self.active_connections:
+            disconnected: List[WebSocket] = []
+            for websocket in self.active_connections[conversation_id]:
+                try:
+                    await websocket.send_text(json.dumps(notification))
+                except Exception as exc:
+                    log_warning(
+                        "Failed to send assignment notification",
+                        {"conversation_id": conversation_id, "error": str(exc)},
+                    )
+                    disconnected.append(websocket)
+
+            if disconnected:
+                async with self._lock:
+                    for ws in disconnected:
+                        if ws in self.active_connections.get(conversation_id, []):
+                            self.active_connections[conversation_id].remove(ws)
+
+        log_info(
+            "Conversation assigned",
+            {"conversation_id": conversation_id, "agent_id": agent_id},
+        )
+
+    def get_conversation_status(
+        self, conversation_id: str
+    ) -> Dict[str, Any]:
+        """Return the current status and assignment for a conversation."""
+        status = self.conversation_statuses.get(conversation_id, "open")
+        assigned_agent_id = self.conversation_assignments.get(conversation_id)
+        return {
+            "conversation_id": conversation_id,
+            "status": status,
+            "assigned_agent_id": assigned_agent_id,
+        }
+
+    def get_unassigned_queue(self) -> List[Dict[str, Any]]:
+        """Return all escalated conversations with no assigned agent, ordered by escalated_at asc."""
+        queue = []
+        for conv_id, status in self.conversation_statuses.items():
+            if status == "escalated" and self.conversation_assignments.get(conv_id) is None:
+                escalated_at = self.conversation_escalated_at.get(conv_id)
+                # Find the most recent escalation reason for this conversation
+                reason = ""
+                for esc in reversed(self.escalations):
+                    if esc.conversation_id == conv_id:
+                        reason = esc.reason
+                        break
+                queue.append({
+                    "conversation_id": conv_id,
+                    "escalated_at": escalated_at,
+                    "reason": reason,
+                })
+        queue.sort(key=lambda x: x["escalated_at"] or datetime.min)
+        return queue
 
     def get_escalations(
         self, conversation_id: Optional[str] = None
