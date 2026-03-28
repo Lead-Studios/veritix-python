@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 
-from src.auth.dependencies import require_admin_key
+from src.auth.dependencies import require_admin_key, require_service_key
 
 from src.analytics.service import analytics_service
 from src.chat import ChatMessage, EscalationEvent, chat_manager
@@ -70,6 +70,8 @@ from src.types_custom import (
     AnalyticsScansResponse,
     AnalyticsStatsQuery,
     AnalyticsTransfersResponse,
+    HeatmapQuery,
+    HeatmapResponse,
     ChatEscalateRequest,
     ChatEscalateResponse,
     ChatEscalationsResponse,
@@ -453,6 +455,39 @@ def get_invalid_attempts(
     except Exception as exc:
         log_error("Failed to retrieve invalid attempts", {"event_id": query.event_id, "error": str(exc)})
         raise HTTPException(status_code=500, detail=f"Failed to retrieve invalid attempts: {exc}")
+
+
+@app.get("/stats/heatmap", response_model=HeatmapResponse)
+def get_scan_heatmap(
+    query: Annotated[HeatmapQuery, Query()],
+    _: str = Depends(require_service_key),
+) -> HeatmapResponse:
+    """Return hourly scan density for an event (24 buckets, zero-filled).
+
+    Useful for capacity planning and staffing decisions.
+    Optionally scope to a single calendar day with the *date* parameter.
+    Protected by SERVICE_API_KEY bearer auth.
+    """
+    log_info("Scan heatmap requested", {
+        "event_id": query.event_id,
+        "date": str(query.date) if query.date else None,
+    })
+    try:
+        result = analytics_service.get_scan_heatmap(
+            event_id=query.event_id,
+            filter_date=query.date,
+        )
+        return HeatmapResponse(
+            event_id=result["event_id"],
+            data=result["data"],
+            peak_hour=result["peak_hour"],
+        )
+    except Exception as exc:
+        log_error("Failed to retrieve scan heatmap", {
+            "event_id": query.event_id,
+            "error": str(exc),
+        })
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve scan heatmap: {exc}")
 
 
 # ---------------------------------------------------------------------------

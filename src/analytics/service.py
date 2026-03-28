@@ -2,10 +2,10 @@
 import json
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import asc, desc, func, text
+from sqlalchemy import asc, desc, extract, func, text
 from sqlalchemy.orm import Session
 
 from src.analytics.models import (
@@ -540,7 +540,61 @@ class AnalyticsService:
         _trending_cache = (rows, time.monotonic() + _TRENDING_CACHE_TTL)
         return rows[:limit]
 
-    def _update_analytics_stats(self, event_id: str, 
+    def get_scan_heatmap(
+        self,
+        event_id: str,
+        filter_date: Optional[date] = None,
+    ) -> Dict[str, Any]:
+        """Return hourly scan-density data (24 buckets) for an event.
+
+        Optionally scoped to a single calendar day via *filter_date*.
+        Hours with no scans are filled with a count of 0 so the response
+        always contains exactly 24 entries.
+        """
+        session = None
+        try:
+            session = get_session()
+
+            hour_expr = extract("hour", TicketScan.scan_timestamp)
+            query = (
+                session.query(
+                    hour_expr.label("hour"),
+                    func.count(TicketScan.id).label("scan_count"),
+                )
+                .filter(TicketScan.event_id == event_id)
+            )
+
+            if filter_date is not None:
+                query = query.filter(
+                    func.date(TicketScan.scan_timestamp) == filter_date.isoformat()
+                )
+
+            rows = query.group_by(hour_expr).all()
+
+            hour_counts: Dict[int, int] = {
+                int(row.hour): int(row.scan_count) for row in rows
+            }
+
+            data = [
+                {"hour": h, "scan_count": hour_counts.get(h, 0)}
+                for h in range(24)
+            ]
+
+            peak_hour = max(range(24), key=lambda h: hour_counts.get(h, 0))
+
+            return {"event_id": event_id, "data": data, "peak_hour": peak_hour}
+
+        except Exception as e:
+            log_error("Failed to get scan heatmap", {
+                "event_id": event_id,
+                "error": str(e),
+            })
+            raise
+        finally:
+            if session:
+                session.close()
+
+    def _update_analytics_stats(self, event_id: str,
                                increment_scan: bool = False, is_valid: bool = True,
                                increment_transfer: bool = False, is_successful: bool = True,
                                increment_invalid: bool = False):

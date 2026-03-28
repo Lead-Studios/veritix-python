@@ -263,6 +263,25 @@ class AnalyticsInvalidAttemptsResponse(BaseModel):
     to_ts: Optional[datetime] = Field(None, description="End datetime filter applied")
 
 
+class HeatmapEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    hour: int = Field(..., ge=0, le=23, description="Hour of day (0-23)")
+    scan_count: int = Field(..., ge=0, description="Number of scans in this hour")
+
+
+class HeatmapQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    event_id: str = Field(..., min_length=1, description="Event UUID to scope the heatmap")
+    date: Optional[date] = Field(None, description="Optional ISO date (YYYY-MM-DD) to scope to a specific day")
+
+
+class HeatmapResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    event_id: str
+    data: List[HeatmapEntry] = Field(..., description="24-entry array of hourly scan counts (hours 0-23)")
+    peak_hour: int = Field(..., ge=0, le=23, description="Hour with the highest scan count")
+
+
 class RootResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     message: str
