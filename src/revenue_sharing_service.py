@@ -4,6 +4,7 @@ from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, List, Optional, Tuple
 
+from fastapi import HTTPException
 from src.logging_config import log_error, log_info
 from src.revenue_sharing_models import (
     EventRevenueInput,
@@ -52,10 +53,19 @@ class RevenueSharingService:
         
         # Get stakeholders for this event (in a real implementation, this would come from DB)
         stakeholders = self._get_default_stakeholders(input_data.event_id)
-        
+
         # Apply custom rules if provided
         rules = input_data.custom_rules or self._get_default_rules()
-        
+
+        # Guard: total rule percentages must not exceed 100%
+        total_pct = sum(rule.percentage for rule in rules)
+        if total_pct > 100.0:
+            breakdown = {rule.id: rule.percentage for rule in rules}
+            raise HTTPException(
+                status_code=400,
+                detail=f"Rule percentages sum to {total_pct:.2f}% which exceeds 100%. Breakdown: {breakdown}",
+            )
+
         # Calculate distributions
         distributions, remaining_balance = self._calculate_distributions(
             net_revenue, stakeholders, rules

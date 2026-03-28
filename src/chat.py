@@ -13,6 +13,7 @@ from src.logging_config import (
     log_info,
     log_warning,
 )
+from src.chat_store import chat_store
 
 
 class ChatMessage(BaseModel):
@@ -121,6 +122,8 @@ class ChatManager:
                 self.message_history[message.conversation_id] = []
             self.message_history[message.conversation_id].append(message)
 
+        chat_store.save_message(message)
+
         if message.conversation_id in self.active_connections:
             disconnected: List[WebSocket] = []
             for websocket in self.active_connections[message.conversation_id]:
@@ -171,8 +174,27 @@ class ChatManager:
     def get_message_history(
         self, conversation_id: str, limit: int = 50
     ) -> List[ChatMessage]:
-        """Return the most recent messages for a conversation."""
+        """Return the most recent messages for a conversation.
+
+        Falls back to the DB when the in-memory cache is empty (e.g. after restart).
+        """
         messages = self.message_history.get(conversation_id, [])
+        if not messages:
+            db_rows = chat_store.get_messages(conversation_id, limit=limit)
+            messages = [
+                ChatMessage(
+                    id=r["id"],
+                    sender_id=r["sender_id"],
+                    sender_type=r["sender_type"],
+                    content=r["content"],
+                    timestamp=r["timestamp"],
+                    conversation_id=r["conversation_id"],
+                )
+                for r in db_rows
+            ]
+            if messages:
+                async_lock_safe: List[ChatMessage] = messages
+                self.message_history[conversation_id] = async_lock_safe
         return messages[-limit:] if len(messages) > limit else messages
 
     def get_user_conversations(self, user_id: str) -> List[str]:
@@ -199,6 +221,8 @@ class ChatManager:
             self.conversation_statuses[conversation_id] = "escalated"
             self.conversation_assignments[conversation_id] = None
             self.conversation_escalated_at[conversation_id] = escalation.timestamp
+
+        chat_store.save_escalation(escalation)
 
         if conversation_id in self.active_connections:
             escalation_notification = {

@@ -584,4 +584,5 @@ def run_etl_once() -> None:
                 status=status,
                 rejected_count=rejected_count,
             )
+        ETL_JOBS_TOTAL.labels(status=status).inc()
         log_info("ETL job completed", {"status": status, "rejected_count": rejected_count})
