@@ -14,6 +14,7 @@ from src.revenue_sharing_models import (
     RevenueShareConfig,
     Stakeholder,
 )
+from src import currency_service, stakeholder_store
 
 
 class RevenueSharingService:
@@ -51,8 +52,12 @@ class RevenueSharingService:
         if input_data.net_revenue:
             net_revenue = gross_sales - total_fees
         
-        # Get stakeholders for this event (in a real implementation, this would come from DB)
-        stakeholders = self._get_default_stakeholders(input_data.event_id)
+        # Get stakeholders for this event from DB
+        stakeholders = stakeholder_store.get_stakeholders_for_event(input_data.event_id)
+        
+        # Fallback to defaults if no DB records exist
+        if not stakeholders:
+            stakeholders = self._get_default_stakeholders(input_data.event_id)
 
         # Apply custom rules if provided
         rules = input_data.custom_rules or self._get_default_rules()
@@ -68,7 +73,7 @@ class RevenueSharingService:
 
         # Calculate distributions
         distributions, remaining_balance = self._calculate_distributions(
-            net_revenue, stakeholders, rules
+            net_revenue, stakeholders, rules, input_data.currency
         )
         
         # Calculate total paid out
@@ -83,6 +88,7 @@ class RevenueSharingService:
             total_paid_out=total_paid_out,
             remaining_balance=remaining_balance,
             calculation_timestamp=datetime.utcnow(),
+            currency=input_data.currency,
             rules_applied=[rule.id for rule in rules]
         )
         
@@ -103,7 +109,21 @@ class RevenueSharingService:
         
         # Processing fees (percentage + fixed)
         processing_percentage = (gross_sales * self.config.processing_fee_rate) / 100
-        processing_fixed = input_data.ticket_count * self.config.processing_fixed_fee
+        
+        # Convert fixed fee from USD to event currency if necessary
+        try:
+            rate = currency_service.get_exchange_rate("USD", input_data.currency)
+            converted_fixed_fee = self.config.processing_fixed_fee * rate
+        except Exception as exc:
+            log_error("Currency conversion failed, falling back to 1:1 ONLY if USD", {
+                "currency": input_data.currency, 
+                "error": str(exc)
+            })
+            if input_data.currency != "USD":
+                raise
+            converted_fixed_fee = self.config.processing_fixed_fee
+            
+        processing_fixed = input_data.ticket_count * converted_fixed_fee
         fees["processing"] = processing_percentage + processing_fixed
         
         # Platform fee
@@ -172,7 +192,8 @@ class RevenueSharingService:
         self, 
         net_revenue: float, 
         stakeholders: List[Stakeholder], 
-        rules: List[RevenueRule]
+        rules: List[RevenueRule],
+        currency: str = "USD"
     ) -> Tuple[List[PayoutDistribution], float]:
         """Calculate the distribution of net revenue to stakeholders."""
         distributions = []
@@ -189,8 +210,9 @@ class RevenueSharingService:
             if rule:
                 applied_rules.add(rule.id)
                 
-                # Calculate gross amount based on percentage
-                gross_amount = (net_revenue * rule.percentage) / 100
+                # Use the stakeholder's own percentage (from DB or default) rather than the rule's hardcoded percentage
+                percentage = stakeholder.percentage if stakeholder.percentage is not None else rule.percentage
+                gross_amount = (net_revenue * percentage) / 100
                 
                 # Apply constraints
                 if stakeholder.min_amount and gross_amount < stakeholder.min_amount:
@@ -211,7 +233,8 @@ class RevenueSharingService:
                     gross_amount=round(gross_amount, 2),
                     fee_deductions=fee_deductions,
                     net_amount=round(gross_amount, 2),  # For simplicity, net = gross in this example
-                    percentage_applied=rule.percentage,
+                    percentage_applied=percentage,
+                    currency=currency,
                     rule_used=rule.id
                 )
                 

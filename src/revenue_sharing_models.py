@@ -50,6 +50,7 @@ class PayoutDistribution(BaseModel):
     fee_deductions: Dict[str, float]  # Fee breakdown
     net_amount: float  # Amount after fees
     percentage_applied: float  # Percentage used for calculation
+    currency: str = "USD"  # Currency code
     rule_used: Optional[str] = None  # Rule that determined this distribution
 
 
@@ -63,6 +64,7 @@ class RevenueCalculationResult(BaseModel):
     total_paid_out: float
     remaining_balance: float  # Leftover from rounding differences
     calculation_timestamp: datetime
+    currency: str = "USD"  # Currency code
     rules_applied: List[str]
 
 

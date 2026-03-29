@@ -9,7 +9,7 @@ from datetime import date, datetime
 from typing import Annotated, Any, Dict, List, Optional
 
 import numpy as np
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
@@ -57,8 +57,14 @@ from src.revenue_sharing_models import (
     EventRevenueInput,
     RevenueCalculationResult,
     RevenueShareConfig,
+    Stakeholder,
 )
 from src.revenue_sharing_service import revenue_sharing_service
+from src import (
+    calculation_history_store,
+    currency_service,
+    stakeholder_store,
+)
 from src.recommender import (
     build_item_similarity_matrix,
     get_item_recommendations,
@@ -182,6 +188,8 @@ def on_startup() -> None:
     global model_pipeline, etl_scheduler
     settings = get_settings()
     create_generated_reports_table()
+    stakeholder_store.create_stakeholders_table()
+    calculation_history_store.create_revenue_calculations_table()
     if not settings.SKIP_MODEL_TRAINING:
         model_pipeline = train_logistic_regression_pipeline()
 
@@ -586,7 +594,10 @@ def recommend_events(payload: RecommendRequest) -> RecommendResponse:
 # ---------------------------------------------------------------------------
 
 @app.post("/calculate-revenue-share", response_model=RevenueCalculationResult)
-def calculate_revenue_share(input_data: EventRevenueInput) -> RevenueCalculationResult:
+def calculate_revenue_share(
+    input_data: EventRevenueInput,
+    background_tasks: BackgroundTasks,
+) -> RevenueCalculationResult:
     """Calculate revenue shares for stakeholders based on event sales."""
     log_info("Revenue share calculation requested", {
         "event_id": input_data.event_id,
@@ -599,7 +610,10 @@ def calculate_revenue_share(input_data: EventRevenueInput) -> RevenueCalculation
         raise HTTPException(status_code=400, detail={"errors": errors})
     try:
         result = revenue_sharing_service.calculate_revenue_shares(input_data)
+        background_tasks.add_task(calculation_history_store.save_calculation, result)
         return result
+    except HTTPException:
+        raise
     except Exception as exc:
         log_error("Revenue share calculation failed", {"error": str(exc)})
         raise HTTPException(status_code=500, detail=f"Revenue calculation failed: {exc}")
@@ -607,22 +621,31 @@ def calculate_revenue_share(input_data: EventRevenueInput) -> RevenueCalculation
 
 @app.post("/calculate-revenue-share/batch", response_model=List[RevenueCalculationResult])
 def calculate_revenue_share_batch(
-    inputs: List[EventRevenueInput],
+    inputs: List[Dict[str, Any]],
+    background_tasks: BackgroundTasks,
 ) -> List[RevenueCalculationResult]:
-    """Calculate revenue shares for multiple events."""
+    """Calculate revenue shares for multiple events, skipping invalid ones."""
     log_info("Batch revenue share calculation requested", {"event_count": len(inputs)})
     results: List[RevenueCalculationResult] = []
-    for input_data in inputs:
+    for item in inputs:
         try:
+            # Validate model first
+            input_data = EventRevenueInput.model_validate(item)
+            # Run service-level validation
             is_valid, errors = revenue_sharing_service.validate_input(input_data)
             if not is_valid:
+                log_info("Skipping invalid event in batch", {"event_id": item.get("event_id"), "errors": errors})
                 continue
-            results.append(revenue_sharing_service.calculate_revenue_shares(input_data))
+            
+            result = revenue_sharing_service.calculate_revenue_shares(input_data)
+            background_tasks.add_task(calculation_history_store.save_calculation, result)
+            results.append(result)
         except Exception as exc:
-            log_error("Batch revenue calculation failed", {
-                "event_id": input_data.event_id,
+            log_error("Batch revenue calculation partially failed", {
+                "event_id": item.get("event_id"),
                 "error": str(exc),
             })
+            continue
     log_info("Batch calculation completed", {
         "processed_count": len(results),
         "requested_count": len(inputs),
@@ -637,6 +660,17 @@ def get_revenue_share_config() -> RevenueShareConfig:
     return revenue_sharing_service.config
 
 
+@app.get("/revenue-share/exchange-rates")
+def get_exchange_rates() -> Dict[str, float]:
+    """Return the current currency exchange rates relative to USD."""
+    log_info("Currency exchange rates requested")
+    try:
+        return currency_service.get_exchange_rates()
+    except Exception as exc:
+        log_error("Failed to fetch exchange rates", {"error": str(exc)})
+        raise HTTPException(status_code=503, detail="Exchange rate service unavailable")
+
+
 @app.get("/revenue-share/example", response_model=EventRevenueInput)
 def get_example_revenue_input() -> EventRevenueInput:
     """Return an example revenue calculation input."""
@@ -648,6 +682,73 @@ def get_example_revenue_input() -> EventRevenueInput:
         currency="USD",
         additional_fees={"service_fee": 50.0},
     )
+
+
+@app.post("/revenue-share/stakeholders/{event_id}")
+def save_stakeholders(
+    event_id: str,
+    stakeholders: List[Stakeholder],
+    _: str = Depends(require_admin_key),
+) -> Dict[str, Any]:
+    """Save custom stakeholder configuration for an event (ADMIN)."""
+    log_info("Saving custom stakeholders", {"event_id": event_id, "count": len(stakeholders)})
+    try:
+        stakeholder_store.save_stakeholders_for_event(event_id, stakeholders)
+        return {"success": True, "message": f"Saved {len(stakeholders)} stakeholders for event {event_id}"}
+    except Exception as exc:
+        log_error("Failed to save stakeholders", {"event_id": event_id, "error": str(exc)})
+        raise HTTPException(status_code=500, detail=f"Failed to save stakeholders: {exc}")
+
+
+@app.get("/revenue-share/stakeholders/{event_id}", response_model=List[Stakeholder])
+def get_stakeholders(event_id: str) -> List[Stakeholder]:
+    """Return the stakeholder configuration for an event (custom or default)."""
+    log_info("Retrieving stakeholders", {"event_id": event_id})
+    try:
+        stakeholders = stakeholder_store.get_stakeholders_for_event(event_id)
+        if not stakeholders:
+            # Fallback logic duplicated here for the GET endpoint
+            stakeholders = revenue_sharing_service._get_default_stakeholders(event_id)
+        return stakeholders
+    except Exception as exc:
+        log_error("Failed to retrieve stakeholders", {"event_id": event_id, "error": str(exc)})
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve stakeholders: {exc}")
+
+
+@app.get("/revenue-share/history/{event_id}")
+def get_revenue_history(
+    event_id: str,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    _: str = Depends(require_admin_key),
+) -> List[Dict[str, Any]]:
+    """Retrieve paginated calculation history for an event (ADMIN)."""
+    log_info("Retrieving revenue history", {"event_id": event_id, "page": page, "limit": limit})
+    try:
+        return calculation_history_store.get_history_for_event(event_id, page, limit)
+    except Exception as exc:
+        log_error("Failed to retrieve history", {"event_id": event_id, "error": str(exc)})
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve history: {exc}")
+
+
+@app.get("/revenue-share/history/{event_id}/{calculation_id}")
+def get_calculation_detail(
+    event_id: str,
+    calculation_id: str,
+    _: str = Depends(require_admin_key),
+) -> Dict[str, Any]:
+    """Retrieve a specific stored calculation by ID (ADMIN)."""
+    log_info("Retrieving calculation detail", {"event_id": event_id, "calculation_id": calculation_id})
+    try:
+        detail = calculation_history_store.get_calculation_by_id(calculation_id)
+        if not detail or detail["event_id"] != event_id:
+            raise HTTPException(status_code=404, detail="Calculation not found for this event")
+        return detail
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log_error("Failed to retrieve calculation detail", {"calculation_id": calculation_id, "error": str(exc)})
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve detail: {exc}")
 
 
 # ---------------------------------------------------------------------------

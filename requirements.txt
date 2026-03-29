@@ -27,4 +27,6 @@ qrcode==7.4.2
 
 # Logging and Metrics
 prometheus-client==0.20.0
+slowapi==0.1.9
+cachetools==5.3.3
 
