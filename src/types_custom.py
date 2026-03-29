@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date as dt_date, datetime
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -115,7 +115,7 @@ class SearchEventsResponse(BaseModel):
 class DailyReportRequest(BaseModel):
     """Request body for /generate-daily-report endpoint."""
     model_config = ConfigDict(extra="forbid")
-    target_date: Optional[date] = Field(None, description="Target date in YYYY-MM-DD format. Defaults to today.")
+    target_date: Optional[dt_date] = Field(None, description="Target date in YYYY-MM-DD format. Defaults to today.")
     output_format: Literal["csv", "json"] = Field("csv", description="Output format: 'csv' or 'json'")
     event_id: Optional[str] = Field(None, description="Optional event ID to scope the report. Null means all events.")
     force_regenerate: bool = Field(False, description="When True, skip cache and always generate a fresh report.")
@@ -315,7 +315,7 @@ class HeatmapEntry(BaseModel):
 class HeatmapQuery(BaseModel):
     model_config = ConfigDict(extra="forbid")
     event_id: str = Field(..., min_length=1, description="Event UUID to scope the heatmap")
-    date: Optional[date] = Field(None, description="Optional ISO date (YYYY-MM-DD) to scope to a specific day")
+    date: Optional[dt_date] = Field(None, description="Optional ISO date (YYYY-MM-DD) to scope to a specific day")
 
 
 class HeatmapResponse(BaseModel):

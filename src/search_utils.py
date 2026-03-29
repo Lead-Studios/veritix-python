@@ -146,11 +146,14 @@ def filter_events_by_keywords(
     )
 
     # No filters — return everything
-    if not any([keywords["event_types"], keywords["locations"],
-                keywords.get("fuzzy_locations"), keywords["time_filter"],
-                keywords["keywords"]]):
-                keywords["time_filter"], keywords["keywords"],
-                has_price_capacity_filter]):
+    if not any([
+        keywords["event_types"],
+        keywords["locations"],
+        keywords.get("fuzzy_locations"),
+        keywords["time_filter"],
+        keywords["keywords"],
+        has_price_capacity_filter
+    ]):
         return events
 
     filtered_events: List[Dict[str, Any]] = []

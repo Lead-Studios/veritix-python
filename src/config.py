@@ -47,6 +47,7 @@ class Settings(BaseSettings):
                 f"{info.field_name} must be at least 32 characters and must not use a default value"
             )
         return v
+    SUPPORTED_CURRENCIES: str = "USD,NGN,GBP,EUR,KES"
     KNOWN_LOCATIONS: str = (
         "lagos,abuja,port harcourt,kano,ibadan,benin,kaduna,jos,enugu,calabar,"
         "owerri,warri,uyo,akure,ilorin,sokoto,zaria,maiduguri,asaba,nnewi"
