@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     PRIVATE_KEY_PEM: Optional[str] = None
     PUBLIC_KEY_PEM: Optional[str] = None
     LOG_LEVEL: str = "INFO"
+    TRUSTED_PROXY_COUNT: int = Field(0, ge=0)
     SESSION_TIMEOUT_MINUTES: int = 30
     SKIP_MODEL_TRAINING: bool = False
     BQ_TABLE_EVENT_SUMMARY: str = "event_sales_summary"

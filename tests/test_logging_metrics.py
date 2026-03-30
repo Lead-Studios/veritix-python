@@ -122,10 +122,45 @@ class TestRequestIDMiddleware:
         }
         mock_request.client = MagicMock()
         mock_request.client.host = '127.0.0.1'
-        
-        ip = middleware._get_client_ip(mock_request)
-        assert ip == '192.168.1.1'
-    
+
+        with patch('src.logging_config.get_settings') as mock_get_settings:
+            mock_get_settings.return_value = MagicMock(TRUSTED_PROXY_COUNT=1)
+            ip = middleware._get_client_ip(mock_request)
+            assert ip == '192.168.1.1'
+
+    def test_get_client_ip_with_trusted_proxy_count_zero(self):
+        """Test that X-Forwarded-For is ignored when no proxies are trusted."""
+        middleware = RequestIDMiddleware(app)
+
+        mock_request = MagicMock()
+        mock_request.headers = {
+            'x-forwarded-for': '192.168.1.1, 10.0.0.1',
+            'x-real-ip': '192.168.1.1'
+        }
+        mock_request.client = MagicMock()
+        mock_request.client.host = '127.0.0.1'
+
+        with patch('src.logging_config.get_settings') as mock_get_settings:
+            mock_get_settings.return_value = MagicMock(TRUSTED_PROXY_COUNT=0)
+            ip = middleware._get_client_ip(mock_request)
+            assert ip == '127.0.0.1'
+
+    def test_get_client_ip_with_trusted_proxy_count_two(self):
+        """Test correct client IP extraction from X-Forwarded-For with multiple trusted proxies."""
+        middleware = RequestIDMiddleware(app)
+
+        mock_request = MagicMock()
+        mock_request.headers = {
+            'x-forwarded-for': '203.0.113.1, 198.51.100.2, 192.0.2.3',
+        }
+        mock_request.client = MagicMock()
+        mock_request.client.host = '127.0.0.1'
+
+        with patch('src.logging_config.get_settings') as mock_get_settings:
+            mock_get_settings.return_value = MagicMock(TRUSTED_PROXY_COUNT=2)
+            ip = middleware._get_client_ip(mock_request)
+            assert ip == '203.0.113.1'
+
     def test_get_client_ip_without_forwarded_headers(self):
         """Test client IP extraction without forwarded headers."""
         middleware = RequestIDMiddleware(app)
@@ -137,6 +172,22 @@ class TestRequestIDMiddleware:
         
         ip = middleware._get_client_ip(mock_request)
         assert ip == '192.168.1.100'
+
+    def test_sanitize_ip_address_with_forwarded_for_and_trust(self):
+        """Test sanitizing X-Forwarded-For to the client IP when proxies are trusted."""
+        with patch('src.logging_config.get_settings') as mock_get_settings:
+            mock_get_settings.return_value = MagicMock(TRUSTED_PROXY_COUNT=1)
+            from src.logging_config import sanitize_ip_address
+            ip = sanitize_ip_address('192.168.1.1, 10.0.0.1')
+            assert ip == '192.168.1.1'
+
+    def test_sanitize_ip_address_ignores_forwarded_for_when_not_trusted(self):
+        """Test that X-Forwarded-For is ignored when no proxies are trusted."""
+        with patch('src.logging_config.get_settings') as mock_get_settings:
+            mock_get_settings.return_value = MagicMock(TRUSTED_PROXY_COUNT=0)
+            from src.logging_config import sanitize_ip_address
+            ip = sanitize_ip_address('192.168.1.1, 10.0.0.1')
+            assert ip is None
 
 
 class TestMetricsMiddleware:
