@@ -13,6 +13,13 @@ class FraudCheckRequest(BaseModel):
         ..., description="List of event dicts. Each event should include at least: type (purchase|transfer), user, ip, ticket_id, timestamp (ISO8601 string)."
     )
 
+    @field_validator("events")
+    @classmethod
+    def validate_event_count(cls, value: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if len(value) > 1000:
+            raise ValueError("events must contain at most 1000 items")
+        return value
+
 class FraudCheckResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     triggered_rules: List[str] = Field(
@@ -32,6 +39,8 @@ class PredictRequest(BaseModel):
     @field_validator("features")
     @classmethod
     def validate_feature_length(cls, value: List[float]) -> List[float]:
+        if len(value) > 100:
+            raise ValueError("features must contain at most 100 values")
         if len(value) != 6:
             raise ValueError("features must contain exactly 6 values")
         return value
