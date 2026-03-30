@@ -16,7 +16,7 @@ from src.analytics.models import (
     get_session,
 )
 import src.db as _db
-from src.logging_config import log_error, log_info
+from src.logging_config import log_error, log_info, sanitize_ip_address
 
 # Simple in-memory cache: (result, expiry_timestamp)
 _trending_cache: Optional[Tuple[List[Dict[str, Any]], float]] = None
@@ -101,7 +101,7 @@ class AnalyticsService:
                 from_user_id=from_user_id,
                 to_user_id=to_user_id,
                 transfer_reason=transfer_reason,
-                ip_address=ip_address,
+                ip_address=sanitize_ip_address(ip_address),
                 user_agent=user_agent,
                 is_successful=is_successful,
                 additional_metadata=json.dumps(additional_metadata) if additional_metadata else None
@@ -155,7 +155,7 @@ class AnalyticsService:
                 ticket_id=ticket_id,
                 event_id=event_id,
                 reason=reason,
-                ip_address=ip_address,
+                ip_address=sanitize_ip_address(ip_address),
                 user_agent=user_agent,
                 additional_metadata=json.dumps(additional_metadata) if additional_metadata else None
             )

@@ -18,8 +18,37 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from src.config import get_settings
+
 # Context variable for request ID
 request_id_context: ContextVar[str] = ContextVar("request_id", default="")
+
+
+def _extract_client_ip_from_forwarded_for(
+    forwarded_for: str, trusted_proxy_count: int
+) -> Optional[str]:
+    if not forwarded_for or trusted_proxy_count <= 0:
+        return None
+
+    entries = [entry.strip() for entry in forwarded_for.split(",") if entry.strip()]
+    if len(entries) <= trusted_proxy_count:
+        return None
+
+    return entries[-1 - trusted_proxy_count]
+
+
+def sanitize_ip_address(ip_address: Optional[str]) -> Optional[str]:
+    if not ip_address:
+        return None
+
+    normalized = ip_address.strip()
+    if "," not in normalized:
+        return normalized
+
+    return _extract_client_ip_from_forwarded_for(
+        normalized,
+        get_settings().TRUSTED_PROXY_COUNT,
+    )
 
 
 class JSONFormatter(logging.Formatter):
@@ -80,12 +109,21 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
     def _get_client_ip(self, request: Request) -> str:
         """Extract client IP from request headers."""
-        forwarded_for = request.headers.get("x-forwarded-for")
-        if forwarded_for:
-            return forwarded_for.split(",")[0].strip()
-        real_ip = request.headers.get("x-real-ip")
-        if real_ip:
-            return real_ip
+        trusted_proxy_count = get_settings().TRUSTED_PROXY_COUNT
+
+        if trusted_proxy_count > 0:
+            forwarded_for = request.headers.get("x-forwarded-for")
+            client_ip = _extract_client_ip_from_forwarded_for(
+                forwarded_for or "",
+                trusted_proxy_count,
+            )
+            if client_ip:
+                return client_ip
+
+            real_ip = request.headers.get("x-real-ip")
+            if real_ip:
+                return real_ip.strip()
+
         return request.client.host if request.client else "unknown"
 
 

@@ -68,6 +68,33 @@ class TestAnalyticsService:
             mock_session.add.assert_called_once()
             mock_session.commit.assert_called_once()
             mock_session.close.assert_called_once()
+
+    def test_log_ticket_transfer_sanitizes_forwarded_ip(self):
+        """Test that ticket transfer ip_address uses sanitization before storage."""
+        with patch('src.analytics.service.get_session') as mock_get_session, \
+             patch('src.analytics.service.sanitize_ip_address') as mock_sanitize, \
+             patch.object(self.service, '_update_analytics_stats') as mock_update_stats:
+            mock_session = MagicMock()
+            mock_get_session.return_value = mock_session
+            mock_sanitize.return_value = '192.168.1.1'
+            
+            mock_session.add.return_value = None
+            mock_session.commit.return_value = None
+            
+            self.service.log_ticket_transfer(
+                ticket_id="ticket_123",
+                event_id="event_456",
+                from_user_id="user_abc",
+                to_user_id="user_def",
+                transfer_reason="gift",
+                ip_address="192.168.1.1, 10.0.0.1",
+                is_successful=True
+            )
+            
+            mock_sanitize.assert_called_once_with("192.168.1.1, 10.0.0.1")
+            mock_session.add.assert_called_once()
+            mock_session.commit.assert_called_once()
+            mock_session.close.assert_called_once()
     
     def test_log_invalid_attempt(self):
         """Test logging an invalid attempt."""
