@@ -2,6 +2,7 @@ import os
 os.environ.setdefault("SKIP_MODEL_TRAINING", "true")
 import pytest
 from fastapi.testclient import TestClient
+from src.auth.dependencies import require_service_key
 from src.main import app
 
 
@@ -9,9 +10,11 @@ client = TestClient(app)
 
 
 def test_predict_scalper_returns_probability():
+    app.dependency_overrides[require_service_key] = lambda: "mocked_token"
     payload = {"features": [3, 0.8, 1.1, 120, 0, 1]}
     response = client.post("/predict-scalper", json=payload)
     assert response.status_code == 200
+    app.dependency_overrides.clear()
     data = response.json()
     assert "probability" in data
     assert isinstance(data["probability"], float)
@@ -19,10 +22,11 @@ def test_predict_scalper_returns_probability():
 
 
 def test_predict_scalper_invalid_feature_length():
+    app.dependency_overrides[require_service_key] = lambda: "mocked_token"
     payload = {"features": [1, 2, 3]}  # wrong length
     response = client.post("/predict-scalper", json=payload)
-    # Model will raise due to shape; FastAPI returns 500 by default
-    assert response.status_code in {400, 422, 500}
+    assert response.status_code == 422
+    app.dependency_overrides.clear()
 
 
 def test_generate_qr_success_returns_base64_png():

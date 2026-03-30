@@ -4,10 +4,14 @@ import json
 import base64
 
 from fastapi.testclient import TestClient
+from src.auth.dependencies import require_service_key
 from src.main import app
 
 from src.utils import compute_signature
 from src.fraud import determine_severity
+
+
+app.dependency_overrides[require_service_key] = lambda: "mocked_token"
 
 
 client = TestClient(app)

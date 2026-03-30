@@ -1,6 +1,7 @@
 import os
 
 from fastapi.testclient import TestClient
+from src.auth.dependencies import require_service_key
 
 os.environ.setdefault("SKIP_MODEL_TRAINING", "true")
 
@@ -53,10 +54,12 @@ def test_http_exception_handler_returns_consistent_shape():
 
 
 def test_validation_exception_handler_returns_field_level_errors():
+    app.dependency_overrides[require_service_key] = lambda: "mocked_token"
     client = TestClient(app, raise_server_exceptions=False)
 
     response = client.post("/predict-scalper", json={"features": "invalid"})
     body = response.json()
+    app.dependency_overrides.clear()
 
     assert response.status_code == 422
     assert body["success"] is False

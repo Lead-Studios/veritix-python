@@ -510,8 +510,9 @@ def get_scan_heatmap(
 # Fraud + scalper prediction
 # ---------------------------------------------------------------------------
 
-@app.post("/check-fraud", response_model=FraudCheckResponse)
-def check_fraud(payload: FraudCheckRequest) -> FraudCheckResponse:
+@app.post("/check-fraud", response_model=FraudCheckResponse, dependencies=[Depends(require_service_key)])
+@limiter.limit("30/minute")
+def check_fraud(request: Request, payload: FraudCheckRequest) -> FraudCheckResponse:
     log_info("Fraud check requested", {"event_count": len(payload.events)})
     triggered = check_fraud_rules(payload.events)
     FRAUD_DETECTIONS_TOTAL.labels(rules_triggered=str(len(triggered))).inc()
@@ -519,8 +520,9 @@ def check_fraud(payload: FraudCheckRequest) -> FraudCheckResponse:
     return FraudCheckResponse(triggered_rules=triggered)
 
 
-@app.post("/predict-scalper", response_model=PredictResponse)
-def predict_scalper(payload: PredictRequest) -> Any:
+@app.post("/predict-scalper", response_model=PredictResponse, dependencies=[Depends(require_service_key)])
+@limiter.limit("60/minute")
+def predict_scalper(request: Request, payload: PredictRequest) -> Any:
     log_info("Scalper prediction requested", {"feature_count": len(payload.features)})
     if model_pipeline is None:
         log_error("Model not ready for prediction")
